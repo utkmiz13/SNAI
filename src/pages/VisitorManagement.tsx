@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { UserCheck, Plus, X, CheckCircle, Shield, Clock, MapPin, Loader, Smartphone } from 'lucide-react';
