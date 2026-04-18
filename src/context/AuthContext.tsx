@@ -144,17 +144,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return { error };
   };
 
-  const signOut = async () => {
-    if (localStorage.getItem('isGuest')) {
-      localStorage.removeItem('isGuest');
-      setProfile(null);
+  const signOut = useCallback(async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch (e) {
+      console.error('Sign out error:', e);
+    } finally {
       setUser(null);
-      return;
+      setProfile(null);
+      localStorage.removeItem('isGuest');
+      // Force navigation to login page
+      window.location.href = '/auth';
     }
-    await supabase.auth.signOut();
-    setProfile(null);
-    setUser(null);
-  };
+  }, []);
 
   const isAdmin = profile?.role === 'admin' || profile?.role === 'leader';
 

@@ -57,16 +57,9 @@ function AppRoutes() {
 }
 
 export default function App() {
-  const hasKeys = !!(import.meta as any).env.VITE_SUPABASE_URL;
-
   return (
     <ThemeProvider>
       <ToastProvider>
-        {!hasKeys && (
-          <div className="fixed top-0 left-0 right-0 z-[9999] bg-red-600 text-white p-3 text-center text-sm font-black shadow-2xl">
-            🚨 ACTION REQUIRED: SUPABASE KEYS NOT FOUND ON VERCEL. GO TO VERCEL SETTINGS --&gt; ENVIRONMENT VARIABLES.
-          </div>
-        )}
         <AuthProvider>
           <BrowserRouter>
             <AppRoutes />
