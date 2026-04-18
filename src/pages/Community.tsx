@@ -1,4 +1,5 @@
 // @ts-nocheck
+// @ts-nocheck
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, Heart, Reply, X, MessageCircle, Clock, Loader, Share2, Award, Calendar, MapPin } from 'lucide-react';

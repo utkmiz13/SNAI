@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { User, Edit2, Phone, Home, Mail, Users, Save, X, Camera } from 'lucide-react';

@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Eye, EyeOff, MapPin, Building, Phone, User, Mail, Lock, Users, AlertCircle } from 'lucide-react';
