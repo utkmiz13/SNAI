@@ -64,8 +64,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     let mounted = true;
 
+    // Safety timeout: if Supabase doesn't respond in 5 seconds, show the app anyway
+    const timeout = setTimeout(() => {
+      if (mounted) {
+        console.warn('Auth session timeout: check Supabase connection');
+        setLoading(false);
+      }
+    }, 5000);
+
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!mounted) return;
+      clearTimeout(timeout);
       setUser(session?.user ?? null);
       if (session?.user) fetchProfile(session.user.id);
       setLoading(false);
@@ -83,6 +92,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       mounted = false;
+      clearTimeout(timeout);
       subscription.unsubscribe();
     };
   }, [fetchProfile, loginAsGuest]);

@@ -4,11 +4,30 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL || '';
 const supabaseAnonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY || '';
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.warn('⚠️ SUPABASE KEYS MISSING: App may not function correctly. Check Vercel Environment Variables.');
+let supabaseClient;
+try {
+  if (!supabaseUrl || !supabaseAnonKey || supabaseUrl === '') {
+    throw new Error('Missing Supabase credentials');
+  }
+  supabaseClient = createClient(supabaseUrl, supabaseAnonKey);
+} catch (e) {
+  console.error('Supabase initialization failed:', e);
+  // Create a mock client to prevent the app from crashing
+  supabaseClient = {
+    auth: {
+      getSession: async () => ({ data: { session: null }, error: null }),
+      onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } }),
+      signOut: async () => ({ error: null }),
+    },
+    from: () => ({
+      select: () => ({ order: () => ({ limit: () => ({ eq: () => ({ single: () => Promise.resolve({ data: null, error: null }) }) }) }) }),
+    }),
+    channel: () => ({ on: () => ({ subscribe: () => ({}) }) }),
+    removeChannel: () => {},
+  } as any;
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export const supabase = supabaseClient;
 
 export type Profile = {
   id: string;

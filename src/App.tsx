@@ -60,12 +60,12 @@ export default function App() {
   return (
     <ThemeProvider>
       <ToastProvider>
+        {!hasKeys && (
+          <div className="fixed top-0 left-0 right-0 z-[9999] bg-red-600 text-white p-3 text-center text-sm font-black shadow-2xl">
+            🚨 ACTION REQUIRED: SUPABASE KEYS NOT FOUND ON VERCEL. GO TO VERCEL SETTINGS > ENVIRONMENT VARIABLES.
+          </div>
+        )}
         <AuthProvider>
-          {!hasKeys && (
-            <div className="fixed top-0 left-0 right-0 z-[9999] bg-red-600 text-white p-2 text-center text-xs font-bold">
-              ⚠️ Warning: Environment Variables (Supabase Keys) not found. Check Vercel Settings.
-            </div>
-          )}
           <BrowserRouter>
             <AppRoutes />
           </BrowserRouter>
