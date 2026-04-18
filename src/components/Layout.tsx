@@ -1,14 +1,25 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   Moon, Sun, Home, Bot, Image as ImageIcon, Settings, Bell, 
   ShieldAlert, Menu, X, ChevronDown, LogOut, User,
   Megaphone, Wrench, ShoppingBag, 
-  FileText, UserCheck, MessageSquare
+  FileText, UserCheck, MessageSquare, Clock, Check, MapPin, Calendar
 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import { motion, AnimatePresence } from 'framer-motion';
+import { supabase } from '../lib/supabase';
+
+interface Notification {
+  id: string;
+  title: string;
+  message: string;
+  is_read: boolean;
+  link: string;
+  created_at: string;
+}
 
 const navItems = [
   { path: '/', icon: <Home size={18} />, label: 'Dashboard' },
@@ -28,12 +39,76 @@ const adminNavItems = [
 
 export function Layout() {
   const { darkMode, toggleDarkMode } = useTheme();
-  const { profile, signOut, isAdmin } = useAuth();
+  const { profile, user, signOut, isAdmin } = useAuth();
+  const { showToast } = useToast();
+  
+  const displayName = profile?.full_name || user?.user_metadata?.full_name || 'Resident';
+  const displayUsername = profile?.username || user?.user_metadata?.username || 'User';
+  const displayFlat = profile?.flat_no || user?.user_metadata?.flat_no;
+  
   const location = useLocation();
   const navigate = useNavigate();
+  
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [notifMenuOpen, setNotifMenuOpen] = useState(false);
   const [sosPressed, setSosPressed] = useState(false);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+
+  useEffect(() => {
+    if (user) {
+      fetchNotifications();
+      
+      // Subscribe to notifications
+      const channel = supabase
+        .channel('public_notifications')
+        .on('postgres_changes', { event: 'INSERT', table: 'notifications' }, (payload) => {
+          const newNotif = payload.new as Notification;
+          if (!newNotif.user_id || newNotif.user_id === user.id) {
+            setNotifications(prev => [newNotif, ...prev]);
+            showToast('info', newNotif.title, newNotif.message);
+          }
+        })
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    }
+  }, [user]);
+
+  const fetchNotifications = async () => {
+    if (!user) return;
+    try {
+      const { data, error } = await supabase
+        .from('notifications')
+        .select('*')
+        .or(`user_id.eq.${user.id},user_id.is.null`)
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      if (error) throw error;
+      setNotifications(data || []);
+    } catch (err) {
+      console.error('Error fetching notifications:', err);
+    }
+  };
+
+  const markAsRead = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from('notifications')
+        .update({ is_read: true })
+        .eq('id', id);
+
+      if (error) throw error;
+      setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n));
+    } catch (err) {
+      console.error('Error marking as read:', err);
+    }
+  };
+
+  const unreadCount = notifications.filter(n => !n.is_read).length;
 
   const allNavItems = isAdmin ? [...navItems, ...adminNavItems] : navItems;
 
@@ -45,16 +120,23 @@ export function Layout() {
   const handleSOS = () => {
     setSosPressed(true);
     setTimeout(() => setSosPressed(false), 2000);
-    alert('🚨 EMERGENCY SOS SENT!\n\nAlerted:\n• Society Security: +91-XXXXX\n• Colony Leader\n• Nearest Hospital\n\nHelp is on the way!');
+    alert('🚨 EMERGENCY SOS SENT!\n\nAlerted:\n• Society Security\n• Colony Leader\n• Nearest Help\n\nHelp is on the way!');
   };
 
   const handleSignOut = async () => {
-    await signOut();
-    navigate('/auth');
+    try {
+      await signOut();
+      navigate('/auth');
+    } catch (err) {
+      console.error('Sign out error:', err);
+      // Fallback: clear local storage and force redirect
+      localStorage.removeItem('isGuest');
+      navigate('/auth');
+    }
   };
 
   return (
-    <div className="min-h-screen bg-[hsl(var(--background))] text-[hsl(var(--foreground))] transition-colors duration-300">
+    <div className="min-h-screen bg-[hsl(var(--background))] text-[hsl(var(--foreground))] transition-colors duration-300 flex flex-col">
       
       {/* TOP HEADER */}
       <header className="sticky top-0 z-40 w-full glass border-b border-[hsl(var(--border))] shadow-sm">
@@ -62,127 +144,150 @@ export function Layout() {
           <div className="flex justify-between items-center h-16">
             
             {/* Logo */}
-            <Link to="/" className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-lg shadow-md">
+            <Link to="/" className="flex items-center gap-2.5 group">
+              <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center text-white font-bold text-xl shadow-lg group-hover:scale-105 transition-transform">
                 S
               </div>
               <div className="hidden sm:block">
-                <p className="font-bold text-base leading-tight">Sharda Nagar Vistar</p>
-                <p className="text-xs text-[hsl(var(--muted-foreground))] leading-tight">Community SuperApp</p>
+                <p className="font-black text-sm tracking-tight leading-tight uppercase">Sharda Nagar</p>
+                <p className="text-[10px] font-bold text-[hsl(var(--muted-foreground))] leading-tight tracking-[0.1em] uppercase">Vistar SuperApp</p>
               </div>
             </Link>
 
-            {/* Desktop Nav - main items only (horizontal scroll) */}
-            <nav className="hidden lg:flex items-center gap-0.5 overflow-x-auto max-w-2xl">
-              {allNavItems.slice(0, 6).map((item) => (
+            {/* Desktop Nav */}
+            <nav className="hidden lg:flex items-center gap-1">
+              {allNavItems.slice(0, 5).map((item) => (
                 <Link
                   key={item.path}
                   to={item.path}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all ${
                     isActive(item.path)
-                      ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
-                      : 'text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--foreground))]'
+                      ? 'bg-blue-500 text-white shadow-md shadow-blue-500/20'
+                      : 'text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))]'
                   }`}
                 >
                   {item.icon}
                   <span>{item.label}</span>
                 </Link>
               ))}
-              
-              {/* More dropdown */}
-              <div className="relative">
-                <button
-                  onClick={() => setProfileMenuOpen(false)}
-                  className="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-medium text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--foreground))] transition-all"
-                >
-                  More <ChevronDown size={14} />
-                </button>
-              </div>
             </nav>
 
             {/* Right actions */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
               
               {/* Notifications */}
-              <button className="relative p-2 rounded-full hover:bg-[hsl(var(--muted))] transition-colors">
-                <Bell size={20} />
-                <span className="notif-dot"></span>
-              </button>
+              <div className="relative">
+                <button 
+                  onClick={() => { setNotifMenuOpen(!notifMenuOpen); setProfileMenuOpen(false); }}
+                  className={`relative p-2.5 rounded-2xl transition-all ${notifMenuOpen ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600' : 'hover:bg-[hsl(var(--muted))]'}`}
+                >
+                  <Bell size={20} />
+                  {unreadCount > 0 && (
+                    <span className="absolute top-2 right-2 w-4 h-4 bg-red-500 text-white text-[9px] font-black rounded-full flex items-center justify-center border-2 border-[hsl(var(--background))] animate-bounce">
+                      {unreadCount}
+                    </span>
+                  )}
+                </button>
 
-              {/* Dark mode */}
-              <button
-                onClick={toggleDarkMode}
-                className="p-2 rounded-full hover:bg-[hsl(var(--muted))] transition-colors"
-                title={darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
-              >
-                {darkMode ? <Sun size={20} /> : <Moon size={20} />}
-              </button>
-
-              {/* SOS */}
-              <button
-                onClick={handleSOS}
-                className={`hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-bold transition-all ${
-                  sosPressed 
-                    ? 'bg-red-600 text-white animate-pulse' 
-                    : 'bg-red-100 text-red-600 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50'
-                }`}
-              >
-                <ShieldAlert size={16} />
-                SOS
-              </button>
+                <AnimatePresence>
+                  {notifMenuOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                      className="absolute right-0 mt-3 w-80 card shadow-2xl z-50 overflow-hidden"
+                    >
+                      <div className="p-4 border-b border-[hsl(var(--border))] flex items-center justify-between">
+                        <h4 className="font-bold text-sm">Notifications</h4>
+                        <span className="text-[10px] font-black uppercase text-blue-500">{unreadCount} New</span>
+                      </div>
+                      <div className="max-h-96 overflow-y-auto">
+                        {notifications.length === 0 ? (
+                          <div className="p-10 text-center">
+                            <Bell size={32} className="mx-auto mb-3 opacity-10" />
+                            <p className="text-xs text-[hsl(var(--muted-foreground))] font-medium">All caught up!</p>
+                          </div>
+                        ) : (
+                          notifications.map((n) => (
+                            <div 
+                              key={n.id} 
+                              onClick={() => { if (!n.is_read) markAsRead(n.id); if (n.link) navigate(n.link); setNotifMenuOpen(false); }}
+                              className={`p-4 border-b border-[hsl(var(--border))]/50 cursor-pointer hover:bg-[hsl(var(--muted))] transition-colors ${!n.is_read ? 'bg-blue-50/30 dark:bg-blue-900/10' : ''}`}
+                            >
+                              <div className="flex justify-between gap-2">
+                                <p className={`text-sm ${!n.is_read ? 'font-bold' : 'font-medium'}`}>{n.title}</p>
+                                {!n.is_read && <div className="w-2 h-2 rounded-full bg-blue-500 mt-1.5 flex-shrink-0" />}
+                              </div>
+                              <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1 line-clamp-2">{n.message}</p>
+                              <p className="text-[9px] text-[hsl(var(--muted-foreground))] mt-2 flex items-center gap-1 uppercase font-bold tracking-wider">
+                                <Clock size={8} /> {new Date(n.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </p>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                      {notifications.length > 0 && (
+                        <div className="p-2 bg-[hsl(var(--muted))]/30 text-center">
+                           <button className="text-[10px] font-bold text-blue-500 uppercase hover:underline">Clear All</button>
+                        </div>
+                      )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
 
               {/* Profile menu */}
               <div className="relative">
                 <button
-                  onClick={() => setProfileMenuOpen(!profileMenuOpen)}
-                  className="flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-full hover:bg-[hsl(var(--muted))] transition-colors"
+                  onClick={() => { setProfileMenuOpen(!profileMenuOpen); setNotifMenuOpen(false); }}
+                  className="flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-2xl hover:bg-[hsl(var(--muted))] transition-colors border border-transparent hover:border-[hsl(var(--border))]"
                 >
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-sm font-bold">
-                    {profile?.full_name?.[0] || profile?.username?.[0] || 'U'}
+                  <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-sm font-black shadow-md shadow-blue-500/20">
+                    {displayName[0] || 'U'}
                   </div>
-                  <span className="hidden md:block text-sm font-medium max-w-[100px] truncate">
-                    {profile?.username || 'User'}
-                  </span>
-                  <ChevronDown size={14} className="text-[hsl(var(--muted-foreground))]" />
+                  <div className="hidden md:flex flex-col items-start leading-tight">
+                    <span className="text-xs font-black truncate max-w-[100px]">{displayUsername}</span>
+                    <span className="text-[10px] font-bold text-[hsl(var(--muted-foreground))] uppercase tracking-wider">{isAdmin ? 'Admin' : 'Resident'}</span>
+                  </div>
+                  <ChevronDown size={14} className={`text-[hsl(var(--muted-foreground))] transition-transform ${profileMenuOpen ? 'rotate-180' : ''}`} />
                 </button>
 
                 <AnimatePresence>
                   {profileMenuOpen && (
                     <motion.div
-                      initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
                       animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                      exit={{ opacity: 0, y: 10, scale: 0.95 }}
                       transition={{ duration: 0.15 }}
-                      className="absolute right-0 mt-2 w-56 card shadow-xl z-50 overflow-hidden"
+                      className="absolute right-0 mt-3 w-64 card shadow-2xl z-50 overflow-hidden"
                     >
-                      <div className="p-3 border-b border-[hsl(var(--border))]">
-                        <p className="font-semibold text-sm">{profile?.full_name || 'Resident'}</p>
-                        <p className="text-xs text-[hsl(var(--muted-foreground))]">@{profile?.username}</p>
-                        {profile?.flat_no && (
-                          <p className="text-xs text-[hsl(var(--muted-foreground))]">Flat: {profile.flat_no}</p>
-                        )}
-                        {isAdmin && (
-                          <span className="badge badge-blue mt-1">Admin</span>
-                        )}
+                      <div className="p-5 bg-gradient-to-br from-blue-600 to-indigo-700 text-white">
+                        <p className="font-black text-sm">{displayName}</p>
+                        <p className="text-[10px] font-bold text-white/70 uppercase tracking-widest mt-0.5">@{displayUsername}</p>
+                        <div className="flex items-center gap-2 mt-3 p-2 bg-white/10 rounded-xl backdrop-blur-md">
+                          <Home size={14} className="text-blue-200" />
+                          <p className="text-[10px] font-bold">{displayFlat || 'Sharda Nagar Vistar'}</p>
+                        </div>
                       </div>
-                      <div className="p-1.5">
+                      <div className="p-2 space-y-1">
                         <Link
                           to="/profile"
                           onClick={() => setProfileMenuOpen(false)}
-                          className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-[hsl(var(--muted))] text-sm transition-colors"
+                          className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-[hsl(var(--muted))] text-xs font-bold transition-all"
                         >
-                          <User size={16} /> My Profile
+                          <User size={16} className="text-blue-500" /> My Profile
                         </Link>
                         <button
                           onClick={() => { toggleDarkMode(); setProfileMenuOpen(false); }}
-                          className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-[hsl(var(--muted))] text-sm transition-colors w-full text-left"
+                          className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-[hsl(var(--muted))] text-xs font-bold transition-all w-full text-left"
                         >
-                          {darkMode ? <Sun size={16} /> : <Moon size={16} />}
+                          {darkMode ? <Sun size={16} className="text-amber-500" /> : <Moon size={16} className="text-blue-500" />}
                           {darkMode ? 'Light Mode' : 'Dark Mode'}
                         </button>
+                        <div className="h-px bg-[hsl(var(--border))]/50 my-1 mx-2" />
                         <button
                           onClick={handleSignOut}
-                          className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 dark:text-red-400 text-sm transition-colors w-full text-left"
+                          className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 dark:text-red-400 text-xs font-bold transition-all w-full text-left"
                         >
                           <LogOut size={16} /> Sign Out
                         </button>
@@ -192,10 +297,10 @@ export function Layout() {
                 </AnimatePresence>
               </div>
 
-              {/* Mobile menu button */}
-              <button
+              {/* Mobile Menu Button */}
+              <button 
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                className="lg:hidden p-2 rounded-full hover:bg-[hsl(var(--muted))] transition-colors"
+                className="lg:hidden p-2.5 rounded-2xl bg-[hsl(var(--muted))] hover:bg-[hsl(var(--border))] transition-colors"
               >
                 {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
               </button>
@@ -203,25 +308,24 @@ export function Layout() {
           </div>
         </div>
 
-        {/* Mobile nav */}
+        {/* Mobile Nav */}
         <AnimatePresence>
           {mobileMenuOpen && (
             <motion.div
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: 'auto', opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              className="lg:hidden overflow-hidden border-t border-[hsl(var(--border))] bg-[hsl(var(--card))]"
+              className="lg:hidden bg-[hsl(var(--card))] border-t border-[hsl(var(--border))] shadow-inner overflow-hidden"
             >
-              <div className="grid grid-cols-3 gap-1 p-3">
+              <div className="grid grid-cols-3 gap-2 p-4">
                 {allNavItems.map((item) => (
                   <Link
                     key={item.path}
                     to={item.path}
                     onClick={() => setMobileMenuOpen(false)}
-                    className={`flex flex-col items-center gap-1 px-2 py-3 rounded-xl text-xs font-medium transition-all ${
+                    className={`flex flex-col items-center gap-2 p-3 rounded-2xl text-[10px] font-bold transition-all ${
                       isActive(item.path)
-                        ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
+                        ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/20'
                         : 'text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))]'
                     }`}
                   >
@@ -229,12 +333,13 @@ export function Layout() {
                     <span>{item.label}</span>
                   </Link>
                 ))}
-                <button
+              </div>
+              <div className="p-4 pt-0">
+                <button 
                   onClick={() => { handleSOS(); setMobileMenuOpen(false); }}
-                  className="flex flex-col items-center gap-1 px-2 py-3 rounded-xl text-xs font-bold bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400"
+                  className="w-full flex items-center justify-center gap-2 py-4 rounded-2xl bg-red-500 text-white font-black text-xs shadow-lg shadow-red-500/30 uppercase tracking-widest"
                 >
-                  <ShieldAlert size={18} />
-                  <span>SOS</span>
+                  <ShieldAlert size={18} /> Send SOS Emergency
                 </button>
               </div>
             </motion.div>
@@ -242,47 +347,82 @@ export function Layout() {
         </AnimatePresence>
       </header>
 
-      {/* SECONDARY NAV for more items (desktop) */}
-      <div className="hidden xl:block sticky top-16 z-30 glass border-b border-[hsl(var(--border))]">
-        <div className="max-w-screen-2xl mx-auto px-6">
-          <div className="flex items-center gap-1 py-1">
+      {/* Main Content Area */}
+      <main className="flex-1 max-w-screen-2xl mx-auto w-full px-4 sm:px-6 py-8">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+          
+          {/* Sidebar (Desktop only) */}
+          <aside className="hidden lg:block lg:col-span-3 xl:col-span-2 space-y-2 sticky top-24 self-start">
             {allNavItems.map((item) => (
               <Link
                 key={item.path}
                 to={item.path}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all whitespace-nowrap ${
+                className={`flex items-center gap-3 px-4 py-3.5 rounded-2xl text-sm font-bold transition-all ${
                   isActive(item.path)
-                    ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
-                    : 'text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--foreground))]'
+                    ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/20 translate-x-1'
+                    : 'text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))] hover:translate-x-1'
                 }`}
               >
                 {item.icon}
                 <span>{item.label}</span>
               </Link>
             ))}
+            <div className="pt-4 mt-4 border-t border-[hsl(var(--border))]/50">
+               <button 
+                onClick={handleSOS}
+                className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 font-bold text-sm transition-all hover:scale-[1.02] active:scale-95"
+              >
+                <ShieldAlert size={18} />
+                <span>Emergency SOS</span>
+              </button>
+            </div>
+          </aside>
+
+          {/* Page Content */}
+          <div className="lg:col-span-9 xl:col-span-10">
+            <Outlet />
           </div>
+        </div>
+      </main>
+
+      {/* Mobile Bottom Bar (Alternative Nav) */}
+      <div className="lg:hidden fixed bottom-6 left-6 right-6 z-40">
+        <div className="glass shadow-2xl rounded-3xl border border-white/20 dark:border-white/5 p-2 flex items-center justify-around">
+          {navItems.slice(0, 4).map((item) => (
+            <Link
+              key={item.path}
+              to={item.path}
+              className={`p-3 rounded-2xl transition-all ${
+                isActive(item.path) ? 'bg-blue-500 text-white' : 'text-[hsl(var(--muted-foreground))]'
+              }`}
+            >
+              {item.icon}
+            </Link>
+          ))}
+          <button onClick={() => setMobileMenuOpen(true)} className="p-3 text-[hsl(var(--muted-foreground))]">
+            <Menu size={18} />
+          </button>
         </div>
       </div>
 
-      {/* Click outside handler */}
-      {profileMenuOpen && (
-        <div className="fixed inset-0 z-30" onClick={() => setProfileMenuOpen(false)} />
-      )}
-
-      {/* MAIN CONTENT */}
-      <main className="max-w-screen-2xl mx-auto px-4 sm:px-6 py-6 pb-24">
-        <Outlet />
-      </main>
-
-      {/* FOOTER */}
-      <footer className="border-t border-[hsl(var(--border))] bg-[hsl(var(--card))] mt-auto">
-        <div className="max-w-screen-2xl mx-auto px-6 py-4">
-          <div className="flex flex-col sm:flex-row justify-between items-center gap-2 text-xs text-[hsl(var(--muted-foreground))]">
-            <p>© {new Date().getFullYear()} Sharda Nagar Vistar RWA – Piyush Saxena Road, Bijnor, UP 226014</p>
-            <p>Made by Utkarsh</p>
+      <footer className="mt-auto border-t border-[hsl(var(--border))] bg-[hsl(var(--card))]/50 backdrop-blur-md">
+        <div className="max-w-screen-2xl mx-auto px-8 py-6">
+          <div className="flex flex-col md:flex-row justify-between items-center gap-4 text-[10px] font-bold text-[hsl(var(--muted-foreground))] uppercase tracking-widest">
+            <p>© {new Date().getFullYear()} Sharda Nagar Vistar Resident Welfare Association</p>
+            <div className="flex items-center gap-6">
+              <Link to="/profile" className="hover:text-blue-500 transition-colors">Privacy Policy</Link>
+              <Link to="/community" className="hover:text-blue-500 transition-colors">Colony Bylaws</Link>
+              <span className="text-foreground">Made with ❤️ by Utkarsh</span>
+            </div>
           </div>
         </div>
       </footer>
+
+      {/* Click outside to close */}
+      {(profileMenuOpen || notifMenuOpen) && (
+        <div className="fixed inset-0 z-30" onClick={() => { setProfileMenuOpen(false); setNotifMenuOpen(false); }} />
+      )}
+
     </div>
   );
 }

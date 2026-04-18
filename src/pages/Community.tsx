@@ -1,17 +1,21 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Heart, Reply, X, Users } from 'lucide-react';
+import { Plus, Heart, Reply, X, Users, MessageCircle, Clock, Loader, Share2, Award, Calendar, MapPin } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { supabase } from '../lib/supabase';
 
 type CommunityTab = 'forum' | 'events' | 'polls';
 
-const FORUM_POSTS = [
-  { id: 1, author: 'Ramesh Kumar', flat: 'Block-45', avatar: 'R', title: '🔍 Lost: Black labrador puppy named Tommy', body: 'Our black labrador puppy named Tommy went missing last night. Last seen near Block 20-25 area. If found please call: 9876543210. Reward offered!', category: 'lost_found', likes: 12, replies: 5, time: '2 hours ago', liked: false },
-  { id: 2, author: 'Priya Verma', flat: 'Block-22', avatar: 'P', title: '💡 Recommendation: Excellent electrician in colony', body: 'Suresh bhai from Block-8 is an excellent electrician. Very affordable rates and reliable work. Contact: 9988776655. Highly recommended!', category: 'recommendations', likes: 8, replies: 3, time: '5 hours ago', liked: false },
-  { id: 3, author: 'Amit Singh', flat: 'Block-10', avatar: 'A', title: '💬 Should we organize a cricket tournament this summer?', body: 'I think we should organize a colony-wide cricket tournament this summer. We have enough ground space near Block 1-5 area. Who is interested? Let\'s vote in the polls!', category: 'general', likes: 21, replies: 14, time: '1 day ago', liked: true },
-  { id: 4, author: 'Sunita Gupta', flat: 'Block-8', avatar: 'S', title: '🚨 Alert: Unknown person seen roaming near Block 30-40', body: 'Residents near Block 30-40 please be alert. An unknown person was seen roaming at odd hours last night. Please inform security immediately if you see suspicious activity.', category: 'emergency', likes: 35, replies: 8, time: '2 days ago', liked: false },
-];
+interface Post {
+  id: string;
+  author_name: string;
+  content: string;
+  category: string;
+  likes: number;
+  created_at: string;
+  user_id: string;
+}
 
 const EVENTS = [
   { id: 1, title: 'Diwali Mela 2026', date: 'Nov 12, 2026', time: '6:00 PM - 10:00 PM', location: 'Central Park, Near Block 1', description: 'Join us for an amazing Diwali celebration with food stalls, games, cultural performances, and a grand fireworks show! This is our biggest community event of the year.', rsvp: 67, capacity: 200, registered: false },
@@ -22,14 +26,13 @@ const EVENTS = [
 const POLLS = [
   { id: 1, question: 'Should we install gym equipment in the central park?', options: ['Yes, definitely!', 'No, not needed', 'Maybe later'], votes: [68, 22, 10], total: 47, ends: '5 days', voted: null as number | null },
   { id: 2, question: 'What should be our next community project?', options: ['CCTV upgrade', 'Playground renovation', 'Streetlight installation', 'Rainwater harvesting'], votes: [35, 25, 28, 12], total: 89, ends: '2 days', voted: null as number | null },
-  { id: 3, question: 'Preferred time for the colony sports day?', options: ['Morning 7-11 AM', 'Evening 4-8 PM', 'All day Sunday'], votes: [45, 40, 15], total: 62, ends: '3 days', voted: null as number | null },
 ];
 
 const categoryColors: Record<string, string> = {
-  general: 'badge-blue',
-  lost_found: 'badge-yellow',
-  recommendations: 'badge-green',
-  emergency: 'badge-red',
+  general: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+  lost_found: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+  recommendations: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+  emergency: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
 };
 
 const categoryLabels: Record<string, string> = {
@@ -41,269 +44,322 @@ const categoryLabels: Record<string, string> = {
 
 export function Community() {
   const [activeTab, setActiveTab] = useState<CommunityTab>('forum');
+  const [posts, setPosts] = useState<Post[]>([]);
   const [polls, setPolls] = useState(POLLS);
-  const [posts, setPosts] = useState(FORUM_POSTS);
   const [showPostForm, setShowPostForm] = useState(false);
-  const [newPost, setNewPost] = useState({ title: '', body: '', category: 'general' });
-  const { profile } = useAuth();
+  const [loading, setLoading] = useState(false);
+  const [fetching, setFetching] = useState(true);
+  const [form, setForm] = useState({ content: '', category: 'general' });
+  const { profile, user } = useAuth();
   const { showToast } = useToast();
 
-  const handleVote = (pollId: number, optionIndex: number) => {
-    setPolls(prev => prev.map(p => {
-      if (p.id !== pollId || p.voted !== null) return p;
-      const newVotes = [...p.votes];
-      newVotes[optionIndex]++;
-      return { ...p, votes: newVotes, total: p.total + 1, voted: optionIndex };
-    }));
-    showToast('success', 'Vote Recorded!', 'Your vote has been counted.');
-  };
-
-  const handleLike = (postId: number) => {
-    setPosts(prev => prev.map(p => {
-      if (p.id !== postId) return p;
-      return { ...p, likes: p.liked ? p.likes - 1 : p.likes + 1, liked: !p.liked };
-    }));
-  };
-
-  const handlePostSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  useEffect(() => {
+    fetchPosts();
     
-    const post = {
-      id: Date.now(),
-      author: profile?.full_name || profile?.username || 'Resident',
-      flat: profile?.flat_no || '',
-      avatar: profile?.username?.[0]?.toUpperCase() || 'R',
-      title: newPost.title,
-      body: newPost.body,
-      category: newPost.category,
-      likes: 0,
-      replies: 0,
-      time: 'Just now',
-      liked: false
-    };
+    const channel = supabase
+      .channel('community_posts_changes')
+      .on('postgres_changes', { event: '*', table: 'community_posts', schema: 'public' }, () => {
+        fetchPosts();
+      })
+      .subscribe();
 
-    setPosts([post, ...posts]);
-    showToast('success', 'Post Published!', 'Your post is now visible to all residents.');
-    setShowPostForm(false);
-    setNewPost({ title: '', body: '', category: 'general' });
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  const fetchPosts = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('community_posts')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setPosts(data || []);
+    } catch (err) {
+      console.error('Error fetching posts:', err);
+    } finally {
+      setFetching(false);
+    }
   };
+
+  const handlePostSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    
+    setLoading(true);
+    try {
+      const { error } = await supabase.from('community_posts').insert({
+        user_id: user.id,
+        author_name: profile?.full_name || user.user_metadata?.full_name || 'Resident',
+        content: form.content,
+        category: form.category,
+        likes: 0
+      });
+
+      if (error) throw error;
+
+      showToast('success', 'Post Published!', 'Your thoughts have been shared with the colony.');
+      setShowPostForm(false);
+      setForm({ content: '', category: 'general' });
+    } catch (err: any) {
+      showToast('error', 'Post Failed', err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLike = async (postId: string, currentLikes: number) => {
+    try {
+      const { error } = await supabase
+        .from('community_posts')
+        .update({ likes: currentLikes + 1 })
+        .eq('id', postId);
+
+      if (error) throw error;
+    } catch (err) {
+      console.error('Error liking post:', err);
+    }
+  };
+
+  if (fetching) {
+    return (
+      <div className="min-h-[60vh] flex items-center justify-center">
+        <Loader className="animate-spin text-blue-500" size={32} />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="page-title">Community</h1>
-          <p className="text-[hsl(var(--muted-foreground))] mt-1">Forum, events, polls — stay connected</p>
+          <h1 className="page-title">Colony Community</h1>
+          <p className="text-[hsl(var(--muted-foreground))] mt-1">Talk, vote, and attend events together</p>
         </div>
         {activeTab === 'forum' && (
-          <button onClick={() => setShowPostForm(true)} className="btn-primary flex items-center gap-2">
-            <Plus size={16} /> New Post
+          <button onClick={() => setShowPostForm(true)} className="btn-primary flex items-center gap-2 shadow-lg shadow-blue-500/20">
+            <Plus size={16} /> Create Post
           </button>
         )}
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-2">
+      {/* Modern Tabs */}
+      <div className="flex p-1.5 bg-[hsl(var(--muted))]/50 rounded-2xl w-fit gap-1">
         {([
-          { key: 'forum', label: '💬 Forum' },
-          { key: 'events', label: '🎉 Events' },
-          { key: 'polls', label: '📊 Polls' },
+          { key: 'forum', label: 'Forum', icon: <MessageCircle size={16} /> },
+          { key: 'events', label: 'Events', icon: <Calendar size={16} /> },
+          { key: 'polls', label: 'Polls', icon: <Award size={16} /> },
         ] as const).map(tab => (
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
-            className={`tab-btn ${activeTab === tab.key ? 'tab-btn-active' : 'tab-btn-inactive'}`}
+            className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-black transition-all ${
+              activeTab === tab.key
+                ? 'bg-[hsl(var(--card))] text-blue-600 shadow-sm'
+                : 'text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]'
+            }`}
           >
+            {tab.icon}
             {tab.label}
           </button>
         ))}
       </div>
 
-      {/* Forum */}
-      {activeTab === 'forum' && (
-        <div className="space-y-4">
-          {posts.map(post => (
-            <motion.div
-              key={post.id}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="card p-5 hover:shadow-md transition-all"
-            >
-              <div className="flex items-start gap-3">
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-indigo-500 flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
-                  {post.avatar}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex flex-wrap items-center gap-2 mb-1">
-                    <span className="font-semibold text-sm">{post.author}</span>
-                    <span className="text-xs text-[hsl(var(--muted-foreground))]">{post.flat}</span>
-                    <span className={`badge text-xs ${categoryColors[post.category]}`}>{categoryLabels[post.category]}</span>
-                  </div>
-                  <h3 className="font-semibold mb-1">{post.title}</h3>
-                  <p className="text-sm text-[hsl(var(--muted-foreground))] line-clamp-2">{post.body}</p>
-                  <div className="flex items-center gap-4 mt-3">
-                    <button
-                      onClick={() => handleLike(post.id)}
-                      className={`flex items-center gap-1.5 text-sm transition-colors ${post.liked ? 'text-red-500' : 'text-[hsl(var(--muted-foreground))] hover:text-red-500'}`}
-                    >
-                      <Heart size={15} fill={post.liked ? 'currentColor' : 'none'} /> {post.likes}
-                    </button>
-                    <button className="flex items-center gap-1.5 text-sm text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--primary))] transition-colors">
-                      <Reply size={15} /> {post.replies}
-                    </button>
-                    <span className="text-xs text-[hsl(var(--muted-foreground))] ml-auto">{post.time}</span>
-                  </div>
-                </div>
+      <AnimatePresence mode="wait">
+        {activeTab === 'forum' && (
+          <motion.div
+            key="forum"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="space-y-4"
+          >
+            {posts.length === 0 ? (
+              <div className="card p-20 text-center border-dashed">
+                 <MessageCircle size={48} className="mx-auto mb-4 opacity-10" />
+                 <p className="font-bold text-lg">No posts yet</p>
+                 <p className="text-sm text-[hsl(var(--muted-foreground))]">Start the conversation in Sharda Nagar!</p>
               </div>
-            </motion.div>
-          ))}
-        </div>
-      )}
-
-      {/* Events */}
-      {activeTab === 'events' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-          {EVENTS.map((event, i) => (
-            <motion.div
-              key={event.id}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.1 }}
-              className="card overflow-hidden"
-            >
-              <div className={`h-2 ${i === 0 ? 'bg-gradient-to-r from-indigo-500 to-purple-600' : i === 1 ? 'bg-gradient-to-r from-teal-500 to-emerald-600' : 'bg-gradient-to-r from-orange-500 to-red-600'}`} />
-              <div className="p-5">
-                <div className="flex justify-between items-start mb-3">
-                  <h3 className="font-bold text-lg">{event.title}</h3>
-                  {event.registered && <span className="badge badge-green">✓ Registered</span>}
-                </div>
-                <div className="space-y-1.5 text-sm text-[hsl(var(--muted-foreground))] mb-4">
-                  <p>📅 {event.date}</p>
-                  <p>🕐 {event.time}</p>
-                  <p>📍 {event.location}</p>
-                </div>
-                <p className="text-sm line-clamp-2 mb-4">{event.description}</p>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="h-1.5 bg-[hsl(var(--muted))] rounded-full w-32 overflow-hidden">
-                      <div className="h-full bg-blue-500 rounded-full" style={{ width: `${(event.rsvp / event.capacity) * 100}%` }} />
+            ) : (
+              posts.map(post => (
+                <div key={post.id} className="card p-6 hover:shadow-xl transition-all border-b-4 border-b-blue-500/10">
+                  <div className="flex items-start gap-4">
+                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-100 to-indigo-100 dark:from-blue-900/30 dark:to-indigo-900/30 flex items-center justify-center text-blue-600 dark:text-blue-400 font-black text-lg flex-shrink-0">
+                      {post.author_name[0].toUpperCase()}
                     </div>
-                    <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1 flex items-center gap-1">
-                      <Users size={11} /> {event.rsvp}/{event.capacity} RSVPs
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-black text-sm">{post.author_name}</span>
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${categoryColors[post.category] || categoryColors.general}`}>
+                            {categoryLabels[post.category] || '💬 General'}
+                          </span>
+                        </div>
+                        <span className="text-[10px] font-bold text-[hsl(var(--muted-foreground))] flex items-center gap-1">
+                          <Clock size={10} /> {new Date(post.created_at).toLocaleDateString()}
+                        </span>
+                      </div>
+                      <p className="text-sm text-[hsl(var(--foreground))] leading-relaxed mb-4 whitespace-pre-wrap">{post.content}</p>
+                      <div className="flex items-center gap-6 pt-4 border-t border-[hsl(var(--border))]/30">
+                        <button 
+                          onClick={() => handleLike(post.id, post.likes)}
+                          className="flex items-center gap-2 text-xs font-bold text-[hsl(var(--muted-foreground))] hover:text-red-500 transition-colors group"
+                        >
+                          <Heart size={16} className="group-hover:fill-red-500 group-hover:scale-110 transition-all" />
+                          {post.likes || 0}
+                        </button>
+                        <button className="flex items-center gap-2 text-xs font-bold text-[hsl(var(--muted-foreground))] hover:text-blue-500 transition-colors">
+                          <Reply size={16} /> Reply
+                        </button>
+                        <button className="flex items-center gap-2 text-xs font-bold text-[hsl(var(--muted-foreground))] hover:text-green-500 transition-colors">
+                          <Share2 size={16} /> Share
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </motion.div>
+        )}
+
+        {activeTab === 'events' && (
+          <motion.div
+            key="events"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="grid grid-cols-1 md:grid-cols-2 gap-6"
+          >
+            {EVENTS.map((event, i) => (
+              <div key={event.id} className="card overflow-hidden group">
+                <div className={`h-1.5 ${i % 3 === 0 ? 'bg-blue-500' : i % 3 === 1 ? 'bg-purple-500' : 'bg-orange-500'}`} />
+                <div className="p-6">
+                  <div className="flex justify-between items-start mb-4">
+                    <h3 className="font-black text-lg">{event.title}</h3>
+                    {event.registered && <span className="bg-green-100 text-green-700 text-[10px] font-black px-2 py-1 rounded-lg uppercase">Attending</span>}
+                  </div>
+                  <div className="space-y-2 mb-6">
+                    <p className="text-xs font-bold text-[hsl(var(--muted-foreground))] flex items-center gap-2">
+                      <Calendar size={14} className="text-blue-500" /> {event.date} • {event.time}
+                    </p>
+                    <p className="text-xs font-bold text-[hsl(var(--muted-foreground))] flex items-center gap-2">
+                      <MapPin size={14} className="text-red-500" /> {event.location}
                     </p>
                   </div>
-                  <button
-                    onClick={() => showToast('success', 'RSVP Confirmed!', `You're registered for ${event.title}`)}
-                    className={event.registered ? 'btn-secondary text-sm' : 'btn-primary text-sm'}
-                  >
-                    {event.registered ? 'Attending ✓' : 'RSVP Now →'}
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          ))}
-        </div>
-      )}
-
-      {/* Polls */}
-      {activeTab === 'polls' && (
-        <div className="space-y-5">
-          {polls.map((poll, i) => {
-            const maxVotes = Math.max(...poll.votes);
-            return (
-              <motion.div
-                key={poll.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.1 }}
-                className="card p-6"
-              >
-                <div className="flex justify-between items-start mb-4">
-                  <h3 className="font-semibold flex-1 pr-4">{poll.question}</h3>
-                  <div className="flex-shrink-0 text-right">
-                    <p className="text-xs text-[hsl(var(--muted-foreground))]">{poll.total} votes</p>
-                    <p className="text-xs text-red-500 font-medium">⏰ {poll.ends} left</p>
+                  <p className="text-sm text-[hsl(var(--muted-foreground))] line-clamp-2 mb-6">{event.description}</p>
+                  <div className="flex items-center justify-between mt-auto pt-4 border-t border-[hsl(var(--border))]/50">
+                    <div className="flex -space-x-2">
+                       {[...Array(4)].map((_, i) => (
+                         <div key={i} className="w-6 h-6 rounded-full border-2 border-[hsl(var(--card))] bg-[hsl(var(--muted))] text-[8px] flex items-center justify-center font-bold">
+                           {String.fromCharCode(65 + i)}
+                         </div>
+                       ))}
+                       <div className="w-6 h-6 rounded-full border-2 border-[hsl(var(--card))] bg-[hsl(var(--muted))] text-[8px] flex items-center justify-center font-bold">+{event.rsvp}</div>
+                    </div>
+                    <button 
+                      onClick={() => showToast('success', 'RSVP Sent', 'We have noted your interest!')}
+                      className="btn-primary py-2 px-6 text-xs font-bold rounded-xl"
+                    >
+                      Interested
+                    </button>
                   </div>
                 </div>
+              </div>
+            ))}
+          </motion.div>
+        )}
+
+        {activeTab === 'polls' && (
+          <motion.div
+            key="polls"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="space-y-4"
+          >
+            {polls.map(poll => (
+              <div key={poll.id} className="card p-8">
+                <div className="flex justify-between items-start mb-6">
+                  <h3 className="text-lg font-black max-w-lg">{poll.question}</h3>
+                  <span className="text-[10px] font-black uppercase text-red-500 bg-red-50 dark:bg-red-900/20 px-2 py-1 rounded-lg">Ends in {poll.ends}</span>
+                </div>
                 <div className="space-y-3">
-                  {poll.options.map((option, idx) => {
-                    const pct = poll.total > 0 ? Math.round((poll.votes[idx] / poll.total) * 100) : 0;
-                    const isWinner = poll.votes[idx] === maxVotes && poll.voted !== null;
+                  {poll.options.map((opt, i) => {
+                    const pct = Math.round((poll.votes[i] / poll.total) * 100);
                     return (
-                      <button
-                        key={idx}
-                        onClick={() => handleVote(poll.id, idx)}
-                        disabled={poll.voted !== null}
-                        className={`w-full text-left rounded-xl overflow-hidden transition-all ${
-                          poll.voted === idx ? 'ring-2 ring-[hsl(var(--primary))]' : ''
-                        } ${poll.voted !== null ? 'cursor-default' : 'hover:shadow-sm'}`}
+                      <button 
+                        key={i} 
+                        onClick={() => showToast('info', 'Poll', 'This is a demo poll.')}
+                        className="w-full relative p-4 rounded-2xl border border-[hsl(var(--border))] hover:border-blue-500 transition-all text-left group overflow-hidden"
                       >
-                        <div className="p-3 border border-[hsl(var(--border))] rounded-xl relative overflow-hidden">
-                          {poll.voted !== null && (
-                            <div
-                              className={`absolute inset-0 ${isWinner ? 'bg-blue-100 dark:bg-blue-900/30' : 'bg-[hsl(var(--muted))]/50'} rounded-xl`}
-                              style={{ width: `${pct}%` }}
-                            />
-                          )}
-                          <div className="relative flex justify-between items-center">
-                            <div className="flex items-center gap-2">
-                              {poll.voted === idx && <span className="text-[hsl(var(--primary))] font-bold">✓</span>}
-                              <span className="text-sm font-medium">{option}</span>
-                            </div>
-                            {poll.voted !== null && (
-                              <span className={`text-sm font-bold ${isWinner ? 'text-blue-600 dark:text-blue-400' : ''}`}>{pct}%</span>
-                            )}
-                          </div>
+                        <div className="absolute inset-0 bg-blue-50 dark:bg-blue-900/10 opacity-0 group-hover:opacity-100 transition-opacity" style={{ width: `${pct}%` }} />
+                        <div className="relative flex justify-between items-center">
+                          <span className="text-sm font-bold">{opt}</span>
+                          <span className="text-xs font-black text-blue-500">{pct}%</span>
                         </div>
                       </button>
                     );
                   })}
                 </div>
-                {poll.voted === null && (
-                  <p className="text-xs text-[hsl(var(--muted-foreground))] mt-3 text-center">Click an option to vote</p>
-                )}
-              </motion.div>
-            );
-          })}
-        </div>
-      )}
+                <p className="text-[10px] font-bold text-[hsl(var(--muted-foreground))] mt-6 uppercase tracking-widest text-center">Total Votes: {poll.total}</p>
+              </div>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* New Post Modal */}
       <AnimatePresence>
         {showPostForm && (
-          <div className="modal-overlay" onClick={() => setShowPostForm(false)}>
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={() => setShowPostForm(false)}>
             <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="card p-6 w-full max-w-lg"
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="card p-8 w-full max-w-lg shadow-2xl"
               onClick={e => e.stopPropagation()}
             >
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="section-title">New Forum Post</h3>
-                <button onClick={() => setShowPostForm(false)}><X size={20} /></button>
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-xl font-black tracking-tight">Community Forum</h3>
+                <button onClick={() => setShowPostForm(false)} className="p-2 hover:bg-[hsl(var(--muted))] rounded-xl"><X size={20} /></button>
               </div>
-              <form onSubmit={handlePostSubmit} className="space-y-4">
+              <form onSubmit={handlePostSubmit} className="space-y-5">
                 <div>
-                  <label className="block text-sm font-medium mb-1.5">Category</label>
-                  <select value={newPost.category} onChange={e => setNewPost(p => ({ ...p, category: e.target.value }))} className="input-field">
-                    <option value="general">💬 General</option>
-                    <option value="lost_found">🔍 Lost & Found</option>
-                    <option value="recommendations">💡 Recommendation</option>
-                    <option value="emergency">🚨 Emergency Alert</option>
-                  </select>
+                  <label className="block text-[10px] font-black uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-2">Select Category</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(['general', 'lost_found', 'recommendations', 'emergency'] as const).map(cat => (
+                      <button
+                        key={cat}
+                        type="button"
+                        onClick={() => setForm(p => ({ ...p, category: cat }))}
+                        className={`p-3 rounded-xl border text-[10px] font-black uppercase transition-all ${
+                          form.category === cat ? 'bg-blue-500 text-white border-blue-500' : 'border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))] hover:border-blue-300'
+                        }`}
+                      >
+                        {categoryLabels[cat].split(' ')[1]}
+                      </button>
+                    ))}
+                  </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1.5">Title</label>
-                  <input type="text" value={newPost.title} onChange={e => setNewPost(p => ({ ...p, title: e.target.value }))} placeholder="Post title..." required className="input-field" />
+                  <label className="block text-[10px] font-black uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-2">Your Message</label>
+                  <textarea 
+                    value={form.content} 
+                    onChange={e => setForm(p => ({ ...p, content: e.target.value }))} 
+                    placeholder="What's happening in Sharda Nagar Vistar?" 
+                    rows={5} 
+                    required 
+                    className="input-field resize-none bg-[hsl(var(--muted))]/30" 
+                  />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1.5">Content</label>
-                  <textarea value={newPost.body} onChange={e => setNewPost(p => ({ ...p, body: e.target.value }))} placeholder="Share with the community..." rows={4} required className="input-field resize-none" />
-                </div>
-                <div className="flex gap-3">
-                  <button type="submit" className="btn-primary flex-1">Publish Post</button>
-                  <button type="button" onClick={() => setShowPostForm(false)} className="btn-secondary">Cancel</button>
+                <div className="flex gap-4 pt-2">
+                  <button type="submit" disabled={loading} className="btn-primary flex-1 py-4 font-black text-xs uppercase tracking-widest shadow-xl shadow-blue-500/20">
+                    {loading ? <Loader className="animate-spin mx-auto" size={18} /> : 'Publish to Colony'}
+                  </button>
+                  <button type="button" onClick={() => setShowPostForm(false)} className="btn-secondary px-8 font-black text-xs uppercase">Cancel</button>
                 </div>
               </form>
             </motion.div>

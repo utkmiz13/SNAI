@@ -1,19 +1,21 @@
-import { useState } from 'react';
-import { motion } from 'framer-motion';
-import { Filter, Plus, Clock, Megaphone, AlertTriangle, Calendar, Info, X, ChevronDown } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Filter, Plus, Clock, Megaphone, AlertTriangle, Calendar, Info, X, ChevronDown, Loader } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { supabase } from '../lib/supabase';
 
 type Category = 'all' | 'urgent' | 'general' | 'event' | 'maintenance';
 
-const notices = [
-  { id: 1, title: 'Water Supply Interruption', body: 'Water supply will be interrupted tomorrow (18th April) from 10:00 AM to 2:00 PM for routine pipeline maintenance. Please store water accordingly. We apologize for the inconvenience.', category: 'urgent', author: 'RWA Secretary', time: '2 hours ago', pinned: true },
-  { id: 2, title: 'Diwali Celebration Meeting', body: 'All residents are warmly invited to attend the Diwali celebration planning meeting at the Community Hall on 20th April at 7:00 PM. Refreshments will be provided. Your suggestions are welcome!', category: 'event', author: 'Community Leader', time: '5 hours ago', pinned: false },
-  { id: 3, title: 'Security Guard Updated Duty Schedule', body: 'The new security guard duty schedule is effective from 20th April 2026. Gate timings and contact numbers have been updated. Please cooperate with the guards and always carry your resident ID.', category: 'general', author: 'Security Committee', time: '1 day ago', pinned: false },
-  { id: 4, title: 'Society Maintenance Fee – April 2026', body: 'This is a reminder that the monthly maintenance fee of ₹1,250 is due for April 2026. Please pay by 25th April to avoid a late fee. UPI payments are accepted through the app.', category: 'maintenance', author: 'Treasurer', time: '2 days ago', pinned: false },
-  { id: 5, title: 'Cleanliness Drive – Sunday 21st April', body: 'The Sharda Nagar Vistar cleanliness drive is scheduled for Sunday, 21st April from 7:00 AM. All residents are encouraged to participate. Bring gloves and cleaning material. Together we can make our colony beautiful!', category: 'event', author: 'RWA President', time: '3 days ago', pinned: false },
-  { id: 6, title: 'New Parking Rules Effective Immediately', body: 'As per the RWA meeting decision, all vehicles must be parked in designated spots only. Unauthorized parking in common areas will result in a ₹500 fine. Please cooperate.', category: 'general', author: 'RWA Committee', time: '4 days ago', pinned: false },
-];
+interface Notice {
+  id: string;
+  title: string;
+  body: string;
+  category: string;
+  author_name: string;
+  is_pinned: boolean;
+  created_at: string;
+}
 
 const categoryConfig: Record<string, { label: string; icon: any; color: string; border: string; bg: string }> = {
   urgent: { label: 'Urgent', icon: AlertTriangle, color: 'text-red-600 dark:text-red-400', border: 'border-l-4 border-red-500', bg: 'bg-red-50 dark:bg-red-900/10' },
@@ -23,15 +25,85 @@ const categoryConfig: Record<string, { label: string; icon: any; color: string; 
 };
 
 export function NoticeBoard() {
+  const [notices, setNotices] = useState<Notice[]>([]);
   const [activeCategory, setActiveCategory] = useState<Category>('all');
   const [showAddForm, setShowAddForm] = useState(false);
-  const [expandedId, setExpandedId] = useState<number | null>(null);
-  const { isAdmin } = useAuth();
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [fetching, setFetching] = useState(true);
+  const [form, setForm] = useState({ title: '', body: '', category: 'general', is_pinned: false });
+  const { isAdmin, profile, user } = useAuth();
   const { showToast } = useToast();
 
+  useEffect(() => {
+    fetchNotices();
+    
+    // Subscribe to changes
+    const channel = supabase
+      .channel('notices_changes')
+      .on('postgres_changes', { event: '*', table: 'notices', schema: 'public' }, () => {
+        fetchNotices();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  const fetchNotices = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('notices')
+        .select('*')
+        .order('is_pinned', { ascending: false })
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setNotices(data || []);
+    } catch (err: any) {
+      console.error('Error fetching notices:', err.message);
+    } finally {
+      setFetching(false);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+
+    try {
+      const { error } = await supabase.from('notices').insert({
+        title: form.title,
+        body: form.body,
+        category: form.category,
+        is_pinned: form.is_pinned,
+        author_name: profile?.full_name || user?.user_metadata?.full_name || 'Admin'
+      });
+
+      if (error) throw error;
+
+      showToast('success', 'Notice Posted!', 'Your notice has been published to all residents.');
+      setShowAddForm(false);
+      setForm({ title: '', body: '', category: 'general', is_pinned: false });
+    } catch (err: any) {
+      showToast('error', 'Post Failed', err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const filtered = activeCategory === 'all' ? notices : notices.filter(n => n.category === activeCategory);
-  const pinned = filtered.filter(n => n.pinned);
-  const regular = filtered.filter(n => !n.pinned);
+  const pinned = filtered.filter(n => n.is_pinned);
+  const regular = filtered.filter(n => !n.is_pinned);
+
+  if (fetching) {
+    return (
+      <div className="min-h-[60vh] flex items-center justify-center">
+        <Loader className="animate-spin text-blue-500" size={32} />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -41,147 +113,190 @@ export function NoticeBoard() {
           <p className="text-[hsl(var(--muted-foreground))] mt-1">Stay updated with colony announcements</p>
         </div>
         {isAdmin && (
-          <button onClick={() => setShowAddForm(true)} className="btn-primary flex items-center gap-2">
+          <button onClick={() => setShowAddForm(true)} className="btn-primary flex items-center gap-2 shadow-lg shadow-blue-500/20">
             <Plus size={16} /> Post Notice
           </button>
         )}
       </div>
 
       {/* Filter tabs */}
-      <div className="flex items-center gap-2 flex-wrap">
-        <Filter size={16} className="text-[hsl(var(--muted-foreground))]" />
+      <div className="flex items-center gap-2 flex-wrap bg-[hsl(var(--muted))]/50 p-1 rounded-2xl w-fit">
         {(['all', 'urgent', 'general', 'event', 'maintenance'] as Category[]).map(cat => (
           <button
             key={cat}
             onClick={() => setActiveCategory(cat)}
-            className={`px-4 py-1.5 rounded-full text-sm font-medium capitalize transition-all ${
+            className={`px-4 py-2 rounded-xl text-xs font-bold capitalize transition-all ${
               activeCategory === cat
-                ? 'bg-[hsl(var(--primary))] text-white shadow-sm'
-                : 'bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--border))]'
+                ? 'bg-[hsl(var(--card))] text-[hsl(var(--primary))] shadow-sm'
+                : 'text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]'
             }`}
           >
-            {cat === 'all' ? '📋 All' : cat === 'urgent' ? '🚨 Urgent' : cat === 'event' ? '🎉 Events' : cat === 'maintenance' ? '🔧 Maintenance' : 'ℹ️ General'}
+            {cat === 'all' ? '📋 All' : cat === 'urgent' ? '🚨 Urgent' : cat === 'event' ? '🎉 Events' : cat === 'maintenance' ? '🔧 Maint.' : 'ℹ️ General'}
           </button>
         ))}
       </div>
 
       {/* Pinned notices */}
       {pinned.length > 0 && (
-        <div>
-          <p className="text-xs font-bold text-[hsl(var(--muted-foreground))] uppercase tracking-wider mb-3 flex items-center gap-1.5">
-            📌 Pinned
+        <div className="space-y-3">
+          <p className="text-[10px] font-black text-[hsl(var(--muted-foreground))] uppercase tracking-[0.2em] ml-1">
+            📌 Pinned Announcements
           </p>
-          <div className="space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {pinned.map(notice => <NoticeCard key={notice.id} notice={notice} expandedId={expandedId} setExpandedId={setExpandedId} />)}
           </div>
         </div>
       )}
 
       {/* Regular notices */}
-      <div>
-        {pinned.length > 0 && <p className="text-xs font-bold text-[hsl(var(--muted-foreground))] uppercase tracking-wider mb-3">All Notices</p>}
+      <div className="space-y-3">
+        {pinned.length > 0 && <p className="text-[10px] font-black text-[hsl(var(--muted-foreground))] uppercase tracking-[0.2em] ml-1">Recent Notices</p>}
         {regular.length === 0 && pinned.length === 0 ? (
-          <div className="card p-12 text-center">
-            <Megaphone size={48} className="text-[hsl(var(--muted-foreground))] mx-auto mb-4" />
-            <p className="font-semibold text-lg mb-1">No notices found</p>
-            <p className="text-[hsl(var(--muted-foreground))] text-sm">No {activeCategory} notices at this time.</p>
+          <div className="card p-16 text-center border-dashed">
+            <Megaphone size={48} className="text-[hsl(var(--muted-foreground))] mx-auto mb-4 opacity-20" />
+            <p className="font-bold text-lg mb-1">Quiet on the board</p>
+            <p className="text-[hsl(var(--muted-foreground))] text-sm">No {activeCategory} notices have been posted yet.</p>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {regular.map(notice => <NoticeCard key={notice.id} notice={notice} expandedId={expandedId} setExpandedId={setExpandedId} />)}
           </div>
         )}
       </div>
 
       {/* Add Notice Modal */}
-      {showAddForm && (
-        <div className="modal-overlay" onClick={() => setShowAddForm(false)}>
-          <motion.div
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            className="card p-6 w-full max-w-lg"
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="section-title">Post New Notice</h3>
-              <button onClick={() => setShowAddForm(false)}><X size={20} /></button>
-            </div>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-1.5">Title</label>
-                <input type="text" placeholder="Notice title..." className="input-field" />
+      <AnimatePresence>
+        {showAddForm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={() => setShowAddForm(false)}>
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="card p-6 w-full max-w-lg shadow-2xl"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-xl font-bold">Post New Notice</h3>
+                <button onClick={() => setShowAddForm(false)} className="p-2 hover:bg-[hsl(var(--muted))] rounded-xl"><X size={20} /></button>
               </div>
-              <div>
-                <label className="block text-sm font-medium mb-1.5">Category</label>
-                <select className="input-field">
-                  <option value="general">General</option>
-                  <option value="urgent">Urgent</option>
-                  <option value="event">Event</option>
-                  <option value="maintenance">Maintenance</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1.5">Message</label>
-                <textarea placeholder="Write notice details..." rows={4} className="input-field resize-none" />
-              </div>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => { showToast('success', 'Notice Posted!', 'Your notice has been published.'); setShowAddForm(false); }}
-                  className="btn-primary flex-1"
-                >
-                  Publish Notice
-                </button>
-                <button onClick={() => setShowAddForm(false)} className="btn-secondary">Cancel</button>
-              </div>
-            </div>
-          </motion.div>
-        </div>
-      )}
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))] mb-1.5">Title</label>
+                  <input 
+                    type="text" 
+                    value={form.title}
+                    onChange={e => setForm(p => ({ ...p, title: e.target.value }))}
+                    placeholder="Brief and catchy title..." 
+                    required
+                    className="input-field" 
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))] mb-1.5">Category</label>
+                    <select 
+                      value={form.category}
+                      onChange={e => setForm(p => ({ ...p, category: e.target.value }))}
+                      className="input-field"
+                    >
+                      <option value="general">ℹ️ General</option>
+                      <option value="urgent">🚨 Urgent</option>
+                      <option value="event">🎉 Event</option>
+                      <option value="maintenance">🔧 Maintenance</option>
+                    </select>
+                  </div>
+                  <div className="flex items-end pb-2">
+                    <label className="flex items-center gap-2 cursor-pointer select-none">
+                      <input 
+                        type="checkbox" 
+                        checked={form.is_pinned}
+                        onChange={e => setForm(p => ({ ...p, is_pinned: e.target.checked }))}
+                        className="w-4 h-4 rounded border-[hsl(var(--border))] text-[hsl(var(--primary))] focus:ring-offset-0 focus:ring-0" 
+                      />
+                      <span className="text-xs font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))]">Pin to Top</span>
+                    </label>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))] mb-1.5">Detailed Message</label>
+                  <textarea 
+                    value={form.body}
+                    onChange={e => setForm(p => ({ ...p, body: e.target.value }))}
+                    placeholder="Provide all relevant details here..." 
+                    rows={5} 
+                    required
+                    className="input-field resize-none" 
+                  />
+                </div>
+                <div className="flex gap-3 pt-2">
+                  <button type="submit" disabled={loading} className="btn-primary flex-1 py-3 font-bold">
+                    {loading ? 'Publishing...' : 'Publish Notice'}
+                  </button>
+                  <button type="button" onClick={() => setShowAddForm(false)} className="btn-secondary px-6">Cancel</button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
 
-function NoticeCard({ notice, expandedId, setExpandedId }: { notice: any; expandedId: number | null; setExpandedId: (id: number | null) => void }) {
+function NoticeCard({ notice, expandedId, setExpandedId }: { notice: any; expandedId: string | null; setExpandedId: (id: string | null) => void }) {
   const cfg = categoryConfig[notice.category] || categoryConfig.general;
   const Icon = cfg.icon;
   const isExpanded = expandedId === notice.id;
+  const dateStr = new Date(notice.created_at).toLocaleDateString('en-IN', {
+    day: 'numeric', month: 'short', year: 'numeric'
+  });
 
   return (
     <motion.div
+      layout
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      className={`card ${cfg.border} ${cfg.bg} overflow-hidden cursor-pointer hover:shadow-md transition-all`}
+      className={`card ${cfg.border} ${cfg.bg} overflow-hidden cursor-pointer hover:shadow-md transition-all h-fit`}
       onClick={() => setExpandedId(isExpanded ? null : notice.id)}
     >
-      <div className="p-4">
+      <div className="p-5">
         <div className="flex items-start justify-between gap-3">
-          <div className="flex items-start gap-3 flex-1 min-w-0">
-            <div className={`p-1.5 rounded-lg ${cfg.bg} ${cfg.color} flex-shrink-0 mt-0.5`}>
-              <Icon size={14} />
+          <div className="flex items-start gap-4 flex-1 min-w-0">
+            <div className={`p-2.5 rounded-2xl ${cfg.bg} ${cfg.color} flex-shrink-0 mt-0.5 border border-white/20 dark:border-white/5`}>
+              <Icon size={18} />
             </div>
             <div className="min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <p className="font-semibold text-sm">{notice.title}</p>
-                {notice.pinned && <span className="badge badge-blue text-xs">📌 Pinned</span>}
-                <span className={`badge text-xs ${
-                  notice.category === 'urgent' ? 'badge-red' :
-                  notice.category === 'event' ? 'badge-purple' :
-                  notice.category === 'maintenance' ? 'badge-yellow' : 'badge-blue'
-                }`}>{cfg.label}</span>
+              <div className="flex items-center gap-2 flex-wrap mb-1">
+                <p className="font-bold text-base tracking-tight leading-tight">{notice.title}</p>
+                {notice.is_pinned && <span className="bg-blue-500 text-white text-[10px] px-2 py-0.5 rounded-full font-bold uppercase">Pinned</span>}
               </div>
-              <p className={`text-xs mt-1 text-[hsl(var(--muted-foreground))] ${isExpanded ? '' : 'line-clamp-1'}`}>
+              <p className={`text-xs text-[hsl(var(--muted-foreground))] leading-relaxed ${isExpanded ? '' : 'line-clamp-2'}`}>
                 {notice.body}
               </p>
             </div>
           </div>
-          <ChevronDown size={16} className={`text-[hsl(var(--muted-foreground))] flex-shrink-0 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+          <ChevronDown size={18} className={`text-[hsl(var(--muted-foreground))] flex-shrink-0 transition-transform mt-1 ${isExpanded ? 'rotate-180' : ''}`} />
         </div>
-        {isExpanded && (
-          <div className="mt-3 pt-3 border-t border-[hsl(var(--border))]/50 flex items-center justify-between text-xs text-[hsl(var(--muted-foreground))]">
-            <span>By: <strong>{notice.author}</strong></span>
-            <span className="flex items-center gap-1"><Clock size={10} /> {notice.time}</span>
-          </div>
-        )}
+        
+        <AnimatePresence>
+          {isExpanded && (
+            <motion.div 
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="mt-4 pt-4 border-t border-[hsl(var(--border))]/30 flex items-center justify-between"
+            >
+              <div className="flex flex-col gap-0.5">
+                <span className="text-[10px] font-bold uppercase text-[hsl(var(--muted-foreground))] opacity-50">Published By</span>
+                <span className="text-xs font-bold">{notice.author_name}</span>
+              </div>
+              <div className="flex flex-col items-end gap-0.5">
+                <span className="text-[10px] font-bold uppercase text-[hsl(var(--muted-foreground))] opacity-50 text-right">Date</span>
+                <span className="text-xs font-medium flex items-center gap-1"><Calendar size={10} /> {dateStr}</span>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </motion.div>
   );

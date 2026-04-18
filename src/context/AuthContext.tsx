@@ -39,6 +39,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (user?.id) await fetchProfile(user.id);
   }, [user, fetchProfile]);
 
+  const loginAsGuest = useCallback(() => {
+    const mockUser = { id: 'guest-123', email: 'guest@example.com' };
+    const mockProfile: Profile = {
+      id: 'guest-123',
+      username: 'guest_user',
+      full_name: 'Guest Resident',
+      flat_no: 'Block-G',
+      phone: '9999999999',
+      role: 'admin', // Make them admin so they can test everything
+      created_at: new Date().toISOString()
+    };
+    setUser(mockUser);
+    setProfile(mockProfile);
+    localStorage.setItem('isGuest', 'true');
+  }, []);
+
   useEffect(() => {
     if (localStorage.getItem('isGuest')) {
       loginAsGuest();
@@ -46,13 +62,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    let mounted = true;
+
     supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!mounted) return;
       setUser(session?.user ?? null);
       if (session?.user) fetchProfile(session.user.id);
       setLoading(false);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (!mounted) return;
       setUser(session?.user ?? null);
       if (session?.user) {
         await fetchProfile(session.user.id);
@@ -61,11 +81,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     });
 
-    return () => subscription.unsubscribe();
-  }, [fetchProfile]);
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, [fetchProfile, loginAsGuest]);
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (data?.session?.user) {
+      setUser(data.session.user);
+      await fetchProfile(data.session.user.id);
+    }
     return { error };
   };
 
@@ -96,25 +123,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         role: 'resident',
         created_at: new Date().toISOString(),
       });
+      
+      if (data.session?.user) {
+        setUser(data.session.user);
+        await fetchProfile(data.user.id);
+      }
     }
 
     return { error };
-  };
-
-  const loginAsGuest = () => {
-    const mockUser = { id: 'guest-123', email: 'guest@example.com' };
-    const mockProfile: Profile = {
-      id: 'guest-123',
-      username: 'guest_user',
-      full_name: 'Guest Resident',
-      flat_no: 'Block-G',
-      phone: '9999999999',
-      role: 'admin', // Make them admin so they can test everything
-      created_at: new Date().toISOString()
-    };
-    setUser(mockUser);
-    setProfile(mockProfile);
-    localStorage.setItem('isGuest', 'true');
   };
 
   const signOut = async () => {

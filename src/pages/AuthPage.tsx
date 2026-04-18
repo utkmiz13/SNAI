@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Eye, EyeOff, MapPin, Building, Phone, User, Mail, Lock, Users, AlertCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { useNavigate } from 'react-router-dom';
 
 type Mode = 'login' | 'signup';
 
@@ -12,6 +13,7 @@ export function AuthPage() {
   const [showPass, setShowPass] = useState(false);
   const { signIn, signUp, loginAsGuest } = useAuth();
   const { showToast } = useToast();
+  const navigate = useNavigate();
 
   const [form, setForm] = useState({
     email: '',
@@ -37,6 +39,7 @@ export function AuthPage() {
           showToast('error', 'Login Failed', error.message);
         } else {
           showToast('success', 'Welcome back!', 'You are now logged in.');
+          navigate('/');
         }
       } else {
         if (!form.username.trim() || !form.fullName.trim() || !form.flatNo.trim()) {
@@ -49,6 +52,7 @@ export function AuthPage() {
           showToast('error', 'Sign Up Failed', error.message);
         } else {
           showToast('success', 'Account Created!', 'Welcome to Sharda Nagar Vistar community.');
+          navigate('/');
         }
       }
     } catch (err: any) {
@@ -307,6 +311,7 @@ export function AuthPage() {
                   onClick={() => {
                     showToast('info', 'Demo Mode', 'Logging in as Guest Admin');
                     loginAsGuest();
+                    navigate('/');
                   }}
                   className="btn-secondary w-full py-2.5 text-sm flex items-center justify-center gap-2"
                 >
