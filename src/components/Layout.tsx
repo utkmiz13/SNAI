@@ -18,6 +18,7 @@ interface Notification {
   message: string;
   is_read: boolean;
   link: string;
+  user_id?: string;
   created_at: string;
 }
 
@@ -62,7 +63,7 @@ export function Layout() {
       // Subscribe to notifications
       const channel = supabase
         .channel('public_notifications')
-        .on('postgres_changes', { event: 'INSERT', table: 'notifications' }, (payload) => {
+        .on('postgres_changes' as any, { event: 'INSERT', table: 'notifications', schema: 'public' }, (payload: any) => {
           const newNotif = payload.new as Notification;
           if (!newNotif.user_id || newNotif.user_id === user.id) {
             setNotifications(prev => [newNotif, ...prev]);
