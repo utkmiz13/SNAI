@@ -40,9 +40,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [user, fetchProfile]);
 
   const loginAsGuest = useCallback(() => {
-    const mockUser = { id: 'guest-123', email: 'guest@example.com' };
+    const mockUser = { id: '00000000-0000-0000-0000-000000000000', email: 'guest@example.com' };
     const mockProfile: Profile = {
-      id: 'guest-123',
+      id: '00000000-0000-0000-0000-000000000000',
       username: 'guest_user',
       full_name: 'Guest Resident',
       flat_no: 'Block-G',

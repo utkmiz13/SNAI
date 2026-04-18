@@ -79,7 +79,7 @@ export function Layout() {
   }, [user]);
 
   const fetchNotifications = async () => {
-    if (!user) return;
+    if (!user || user.id.startsWith('00000000')) return;
     try {
       const { data, error } = await supabase
         .from('notifications')
