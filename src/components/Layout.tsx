@@ -123,16 +123,8 @@ export function Layout() {
     alert('🚨 EMERGENCY SOS SENT!\n\nAlerted:\n• Society Security\n• Colony Leader\n• Nearest Help\n\nHelp is on the way!');
   };
 
-  const handleSignOut = async () => {
-    try {
-      await signOut();
-      navigate('/auth');
-    } catch (err) {
-      console.error('Sign out error:', err);
-      // Fallback: clear local storage and force redirect
-      localStorage.removeItem('isGuest');
-      navigate('/auth');
-    }
+  const handleSignOut = () => {
+    signOut();
   };
 
   return (

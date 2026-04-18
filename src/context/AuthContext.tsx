@@ -145,15 +145,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOut = useCallback(async () => {
+    // 1. Clear local guest storage immediately
+    localStorage.removeItem('isGuest');
+    
+    // 2. Clear Auth state
+    setUser(null);
+    setProfile(null);
+    
+    // 3. Try to sign out from Supabase (fails gracefully)
     try {
       await supabase.auth.signOut();
     } catch (e) {
       console.error('Sign out error:', e);
     } finally {
-      setUser(null);
-      setProfile(null);
-      localStorage.removeItem('isGuest');
-      // Force navigation to login page
+      // 4. Force jump to login page
       window.location.href = '/auth';
     }
   }, []);

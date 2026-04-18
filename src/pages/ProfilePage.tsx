@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { User, Edit2, Phone, Home, Mail, Users, Save, X, Camera } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { supabase } from '../lib/supabase';
 
 export function ProfilePage() {
   const { profile, refreshProfile } = useAuth();
@@ -17,10 +18,28 @@ export function ProfilePage() {
   });
 
   const handleSave = async () => {
-    await new Promise(r => setTimeout(r, 500));
-    showToast('success', 'Profile Updated!', 'Your information has been saved.');
-    setEditing(false);
-    refreshProfile();
+    if (!profile?.id) return;
+    
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          full_name: form.full_name,
+          phone: form.phone,
+          flat_no: form.flat_no,
+          family_members: parseInt(form.family_members.toString()) || 0,
+        })
+        .eq('id', profile.id);
+
+      if (error) throw error;
+      
+      showToast('success', 'Profile Updated!', 'Your information has been saved to the database.');
+      setEditing(false);
+      refreshProfile();
+    } catch (err) {
+      console.error('Error updating profile:', err);
+      showToast('error', 'Update Failed', 'Could not save details to the database.');
+    }
   };
 
   const initials = profile?.full_name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) 
