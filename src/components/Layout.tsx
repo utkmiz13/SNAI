@@ -4,7 +4,7 @@ import {
   Moon, Sun, Home, Bot, Image as ImageIcon, Settings, Bell, 
   ShieldAlert, Menu, X, ChevronDown, LogOut, User,
   Megaphone, Wrench, ShoppingBag, 
-  FileText, UserCheck, MessageSquare, Clock, Check, MapPin, Calendar
+  FileText, UserCheck, MessageSquare, Clock
 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
@@ -53,7 +53,6 @@ export function Layout() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [notifMenuOpen, setNotifMenuOpen] = useState(false);
-  const [sosPressed, setSosPressed] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
   useEffect(() => {
@@ -119,8 +118,6 @@ export function Layout() {
   };
 
   const handleSOS = () => {
-    setSosPressed(true);
-    setTimeout(() => setSosPressed(false), 2000);
     alert('🚨 EMERGENCY SOS SENT!\n\nAlerted:\n• Society Security\n• Colony Leader\n• Nearest Help\n\nHelp is on the way!');
   };
 

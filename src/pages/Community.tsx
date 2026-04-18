@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Heart, Reply, X, Users, MessageCircle, Clock, Loader, Share2, Award, Calendar, MapPin } from 'lucide-react';
+import { Plus, Heart, Reply, X, MessageCircle, Clock, Loader, Share2, Award, Calendar, MapPin } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { supabase } from '../lib/supabase';
@@ -45,7 +45,7 @@ const categoryLabels: Record<string, string> = {
 export function Community() {
   const [activeTab, setActiveTab] = useState<CommunityTab>('forum');
   const [posts, setPosts] = useState<Post[]>([]);
-  const [polls, setPolls] = useState(POLLS);
+  const [polls] = useState(POLLS);
   const [showPostForm, setShowPostForm] = useState(false);
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(true);

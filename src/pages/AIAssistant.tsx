@@ -11,7 +11,7 @@ interface Message {
   typing?: boolean;
 }
 
-const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || '';
+const GEMINI_API_KEY = (import.meta as any).env.VITE_GEMINI_API_KEY || '';
 const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 
 const COLONY_SYSTEM_CONTEXT = `You are "Sharda Nagar AI" — the smart assistant for Sharda Nagar Vistar Colony, Bijnor, Uttar Pradesh.
