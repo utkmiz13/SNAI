@@ -17,6 +17,18 @@ export function ProfilePage() {
     family_members: profile?.family_members || 1,
   });
 
+  // Sync form with profile data when it loads or changes
+  useEffect(() => {
+    if (profile && !editing) {
+      setForm({
+        full_name: profile.full_name || '',
+        phone: profile.phone || '',
+        flat_no: profile.flat_no || '',
+        family_members: profile.family_members || 1,
+      });
+    }
+  }, [profile, editing]);
+
   const handleSave = async () => {
     if (!profile?.id) return;
     
