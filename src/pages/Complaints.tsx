@@ -281,6 +281,16 @@ export function Complaints() {
                       <p className={`text-xs text-[hsl(var(--muted-foreground))] leading-relaxed ${isExpanded ? '' : 'line-clamp-1'}`}>
                         {complaint.description}
                       </p>
+                      
+                      {/* Resolved By Badge - Visible even when collapsed */}
+                      {complaint.status === 'resolved' && (
+                        <div className="mt-2 flex items-center gap-1.5 px-2 py-1 bg-green-500/10 border border-green-500/20 rounded-lg w-fit">
+                          <CheckCircle size={10} className="text-green-600" />
+                          <span className="text-[9px] font-bold text-green-700 dark:text-green-400 uppercase tracking-wider">
+                            Resolved by {complaint.resolved_by || 'Resident'}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   </div>
                   <ChevronDown size={16} className={`text-[hsl(var(--muted-foreground))] flex-shrink-0 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
@@ -312,16 +322,6 @@ export function Complaints() {
                           <span className="text-foreground font-medium capitalize">{complaint.category}</span>
                         </div>
                       </div>
-
-                      {/* Display who resolved it if applicable */}
-                      {complaint.status === 'resolved' && (
-                        <div className="mt-3 p-2.5 bg-green-100/50 dark:bg-green-900/20 rounded-xl flex items-center gap-2 border border-green-200 dark:border-green-800/50">
-                          <CheckCircle size={14} className="text-green-600" />
-                          <span className="text-[10px] font-bold text-green-700 dark:text-green-400">
-                            Resolved by {complaint.resolved_by || 'Resident'}
-                          </span>
-                        </div>
-                      )}
 
                       {/* Resolver Actions - Only for Registered Residents */}
                       {isRegistered && complaint.status !== 'resolved' && (
