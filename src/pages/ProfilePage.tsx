@@ -7,7 +7,7 @@ import { useToast } from '../context/ToastContext';
 import { supabase } from '../lib/supabase';
 
 export function ProfilePage() {
-  const { profile, refreshProfile } = useAuth();
+  const { profile, user, refreshProfile } = useAuth();
   const { showToast } = useToast();
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({
@@ -41,7 +41,7 @@ export function ProfilePage() {
         .from('profiles')
         .upsert({
           id: userId,
-          username: profile?.username || user?.user_metadata?.username || user?.email?.split('@')[0],
+          username: profile?.username || user?.user_metadata?.username || user?.email?.split('@')?.[0] || 'user',
           full_name: form.full_name,
           phone: form.phone,
           flat_no: form.flat_no,
