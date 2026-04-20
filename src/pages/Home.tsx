@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Bell, Wrench, Vote, CalendarDays, MapPin, UserCheck, Package, Clock, Loader } from 'lucide-react';
+import { Bell, Wrench, Vote, CalendarDays, MapPin, UserCheck, Package, Clock, Loader, WifiOff } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
@@ -35,44 +35,84 @@ const statusLabel: Record<string, string> = {
   resolved: 'Resolved',
 };
 
+// Demo data for offline mode
+const DEMO_NOTICES = [
+  { id: '1', title: 'Water Maintenance', body: 'Scheduled for tomorrow 10AM', category: 'urgent', created_at: new Date().toISOString() },
+  { id: '2', title: 'Holi Party', body: 'March 25th in Central Park', category: 'event', created_at: new Date(Date.now() - 86400000).toISOString() },
+  { id: '3', title: 'New Gym Rules', body: 'Please wear sports shoes', category: 'general', created_at: new Date(Date.now() - 172800000).toISOString() },
+];
+
+const DEMO_COMPLAINTS = [
+  { id: '1', title: 'Elevator Not Working', status: 'pending', created_at: new Date(Date.now() - 3600000).toISOString() },
+  { id: '2', title: 'Leaking Tap', status: 'in_progress', created_at: new Date(Date.now() - 7200000).toISOString() },
+];
+
+const DEMO_VISITORS = [
+  { id: '1', name: 'Zomato Delivery', type: 'delivery', created_at: new Date(Date.now() - 1800000).toISOString() },
+  { id: '2', name: 'Rajesh (Guest)', type: 'guest', created_at: new Date(Date.now() - 5400000).toISOString() },
+];
+
 export function Home() {
   const { profile, user } = useAuth();
   const [notices, setNotices] = useState<any[]>([]);
   const [complaints, setComplaints] = useState<any[]>([]);
   const [visitors, setVisitors] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isOffline, setIsOffline] = useState(false);
 
   const displayName = profile?.full_name || profile?.username || user?.user_metadata?.full_name || user?.user_metadata?.username || 'Resident';
   const displayFlat = profile?.flat_no || user?.user_metadata?.flat_no;
 
+  const safeFormatDistance = (dateStr: string) => {
+    try {
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return 'recently';
+      return formatDistanceToNow(d) + ' ago';
+    } catch (e) {
+      return 'recently';
+    }
+  };
+
   const fetchData = async () => {
     try {
       // Fetch Notices
-      const { data: noticeData } = await supabase
+      const { data: noticeData, error: nErr } = await supabase
         .from('notices')
         .select('*')
         .order('created_at', { ascending: false })
         .limit(3);
       
       // Fetch Complaints
-      const { data: complaintData } = await supabase
+      const { data: complaintData, error: cErr } = await supabase
         .from('complaints')
         .select('*')
         .order('created_at', { ascending: false })
         .limit(2);
 
       // Fetch Visitors
-      const { data: visitorData } = await supabase
+      const { data: visitorData, error: vErr } = await supabase
         .from('visitors')
         .select('*')
         .order('created_at', { ascending: false })
         .limit(2);
 
-      setNotices(noticeData || []);
-      setComplaints(complaintData || []);
-      setVisitors(visitorData || []);
+      if (nErr || cErr || vErr) {
+        setIsOffline(true);
+        setNotices(DEMO_NOTICES);
+        setComplaints(DEMO_COMPLAINTS);
+        setVisitors(DEMO_VISITORS);
+      } else {
+        setIsOffline(false);
+        setNotices(noticeData || []);
+        setComplaints(complaintData || []);
+        setVisitors(visitorData || []);
+      }
     } catch (err) {
       console.error('Error fetching dashboard data:', err);
+      setIsOffline(true);
+      setNotices(DEMO_NOTICES);
+      setComplaints(DEMO_COMPLAINTS);
+      setVisitors(DEMO_VISITORS);
     } finally {
       setLoading(false);
     }
@@ -81,16 +121,22 @@ export function Home() {
   useEffect(() => {
     fetchData();
 
-    // Subscribe to all changes for real-time dashboard updates
-    const channel = supabase
-      .channel('dashboard_updates')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'notices' }, fetchData)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'complaints' }, fetchData)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'visitors' }, fetchData)
-      .subscribe();
+    let channel: any = null;
+    try {
+      channel = supabase
+        .channel('dashboard_updates')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'notices' }, fetchData)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'complaints' }, fetchData)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'visitors' }, fetchData)
+        .subscribe();
+    } catch (e) {
+      console.warn('Dashboard real-time sub failed:', e);
+    }
 
     return () => {
-      supabase.removeChannel(channel);
+      if (channel) {
+        try { supabase.removeChannel(channel); } catch (_) {}
+      }
     };
   }, []);
 
@@ -132,6 +178,14 @@ export function Home() {
         </div>
       </motion.div>
 
+      {/* Offline notice */}
+      {isOffline && (
+        <div className="flex items-center gap-3 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl text-sm text-amber-700 dark:text-amber-400">
+          <WifiOff size={16} className="flex-shrink-0" />
+          <span><strong>Dashboard Demo:</strong> Showing sample data. Connect valid Supabase credentials for real-time updates.</span>
+        </div>
+      )}
+
       {/* Quick Stats */}
       <motion.div
         variants={containerVariants}
@@ -158,12 +212,12 @@ export function Home() {
         {/* Real-time status badge */}
         <motion.div variants={itemVariants} className="card p-5 flex items-center gap-3 bg-green-50/50 dark:bg-green-900/10 border-green-100 dark:border-green-900/30">
           <div className="w-11 h-11 rounded-xl bg-green-500 text-white flex items-center justify-center flex-shrink-0 relative">
-            <div className="absolute inset-0 bg-white rounded-full animate-ping opacity-20" />
-            <Clock size={20} />
+            {!isOffline && <div className="absolute inset-0 bg-white rounded-full animate-ping opacity-20" />}
+            {isOffline ? <WifiOff size={20} /> : <Clock size={20} />}
           </div>
           <div>
-            <p className="text-sm font-bold text-green-700 dark:text-green-400">Live Sync</p>
-            <p className="text-[10px] text-green-600/70 dark:text-green-400/60 font-medium">Monitoring Colony</p>
+            <p className="text-sm font-bold text-green-700 dark:text-green-400">{isOffline ? 'Demo Mode' : 'Live Sync'}</p>
+            <p className="text-[10px] text-green-600/70 dark:text-green-400/60 font-medium">{isOffline ? 'Supabase Offline' : 'Monitoring Colony'}</p>
           </div>
         </motion.div>
       </motion.div>
@@ -197,7 +251,7 @@ export function Home() {
                     <p className="text-xs mt-0.5 opacity-80 line-clamp-1">{notice.body}</p>
                   </div>
                   <span className="flex items-center gap-1 text-[10px] opacity-70 whitespace-nowrap flex-shrink-0 uppercase font-bold">
-                    <Clock size={10} /> {formatDistanceToNow(new Date(notice.created_at))} ago
+                    <Clock size={10} /> {safeFormatDistance(notice.created_at)}
                   </span>
                 </div>
               </div>
@@ -226,7 +280,7 @@ export function Home() {
                 <p className="font-medium text-sm">{c.title}</p>
                 <div className="flex items-center justify-between mt-1.5">
                   <span className={`badge text-[10px] ${statusBadge[c.status] || 'badge-yellow'}`}>{statusLabel[c.status] || 'Pending'}</span>
-                  <span className="text-[10px] text-[hsl(var(--muted-foreground))] font-medium uppercase">{formatDistanceToNow(new Date(c.created_at))} ago</span>
+                  <span className="text-[10px] text-[hsl(var(--muted-foreground))] font-medium uppercase">{safeFormatDistance(c.created_at)}</span>
                 </div>
               </div>
             )) : (
@@ -256,7 +310,7 @@ export function Home() {
                 {v.type === 'delivery' ? <Package size={16} className="text-amber-600 dark:text-amber-400" /> : <UserCheck size={16} className="text-green-600 dark:text-green-400" />}
                 <span className="font-medium text-xs">{v.name}</span>
                 <span className={`ml-auto text-[10px] font-bold uppercase ${v.type === 'delivery' ? 'text-amber-600 dark:text-amber-400' : 'text-green-600 dark:text-green-400'}`}>
-                  {formatDistanceToNow(new Date(v.created_at))} ago
+                  {safeFormatDistance(v.created_at)}
                 </span>
               </div>
             )) : (

@@ -1,8 +1,7 @@
 // @ts-nocheck
-// @ts-nocheck
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { UserCheck, Plus, X, CheckCircle, Shield, Clock, MapPin, Loader, Smartphone } from 'lucide-react';
+import { UserCheck, Plus, X, CheckCircle, Shield, Clock, MapPin, Loader, Smartphone, WifiOff } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { supabase } from '../lib/supabase';
@@ -21,6 +20,13 @@ interface Visitor {
   created_at: string;
 }
 
+// Demo data for offline mode
+const DEMO_VISITORS: Visitor[] = [
+  { id: '1', name: 'Ankit Verma', purpose: 'Personal Visit', type: 'visitor', status: 'arrived', time: '10:30 AM', otp: '482910', is_pre_approved: true, host_name: 'Ramesh Sharma', flat_no: 'Block-5, Flat-12', created_at: new Date(Date.now() - 3600000).toISOString() },
+  { id: '2', name: 'Zomato Delivery', purpose: 'Food Delivery', type: 'delivery', status: 'pending', time: '1:15 PM', otp: '', is_pre_approved: false, host_name: 'Priya Verma', flat_no: 'Block-3, Flat-7', created_at: new Date(Date.now() - 1800000).toISOString() },
+  { id: '3', name: 'Sharma Painter', purpose: 'Maintenance / Repair', type: 'visitor', status: 'pending', time: '9:00 AM', otp: '192847', is_pre_approved: true, host_name: 'Suresh Gupta', flat_no: 'Block-8, Flat-3', created_at: new Date(Date.now() - 7200000).toISOString() },
+];
+
 export function VisitorManagement() {
   const [visitors, setVisitors] = useState<Visitor[]>([]);
   const [activeTab, setActiveTab] = useState<'log' | 'pre-approve' | 'deliveries'>('log');
@@ -28,22 +34,30 @@ export function VisitorManagement() {
   const [generatedOTP, setGeneratedOTP] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(true);
-  const [form, setForm] = useState({ name: '', phone: '', purpose: '', date: '', time: '' });
+  const [isOffline, setIsOffline] = useState(false);
+  const [form, setForm] = useState({ name: '', phone: '', purpose: 'Personal Visit', date: '', time: '' });
   const { profile, user } = useAuth();
   const { showToast } = useToast();
 
   useEffect(() => {
     fetchVisitors();
-    
-    const channel = supabase
-      .channel('visitors_changes')
-      .on('postgres_changes', { event: '*', table: 'visitors', schema: 'public' }, () => {
-        fetchVisitors();
-      })
-      .subscribe();
+
+    let channel: any = null;
+    try {
+      channel = supabase
+        .channel('visitors_changes')
+        .on('postgres_changes', { event: '*', table: 'visitors', schema: 'public' }, () => {
+          fetchVisitors();
+        })
+        .subscribe();
+    } catch (e) {
+      console.warn('Real-time subscription failed:', e);
+    }
 
     return () => {
-      supabase.removeChannel(channel);
+      if (channel) {
+        try { supabase.removeChannel(channel); } catch (_) {}
+      }
     };
   }, []);
 
@@ -54,10 +68,18 @@ export function VisitorManagement() {
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
-      setVisitors(data || []);
-    } catch (err) {
-      console.error('Error fetching visitors:', err);
+      if (error) {
+        console.warn('Visitors fetch error (showing demo data):', error.message);
+        setIsOffline(true);
+        setVisitors(DEMO_VISITORS);
+      } else {
+        setIsOffline(false);
+        setVisitors(data || []);
+      }
+    } catch (err: any) {
+      console.error('Error fetching visitors:', err.message);
+      setIsOffline(true);
+      setVisitors(DEMO_VISITORS);
     } finally {
       setFetching(false);
     }
@@ -67,12 +89,40 @@ export function VisitorManagement() {
 
   const handlePreApprove = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) return;
-    
+    if (!user) {
+      showToast('error', 'Not Logged In', 'You must be logged in to pre-approve a guest.');
+      return;
+    }
+    if (!form.name.trim()) {
+      showToast('warning', 'Missing Name', 'Please enter the guest name.');
+      return;
+    }
+
     setLoading(true);
     const otp = generateOTP();
-    
+
     try {
+      if (isOffline) {
+        // Demo mode: add locally
+        const newVisitor: Visitor = {
+          id: Date.now().toString(),
+          name: form.name,
+          purpose: form.purpose,
+          type: 'visitor',
+          status: 'pending',
+          time: form.time,
+          otp: otp,
+          is_pre_approved: true,
+          host_name: profile?.full_name || user?.user_metadata?.full_name || 'Resident',
+          flat_no: profile?.flat_no || user?.user_metadata?.flat_no || 'Unknown',
+          created_at: new Date().toISOString(),
+        };
+        setVisitors(prev => [newVisitor, ...prev]);
+        setGeneratedOTP(otp);
+        showToast('success', 'Guest Pre-Approved! (Demo)', `OTP ${otp} generated locally.`);
+        return;
+      }
+
       const { error } = await supabase.from('visitors').insert({
         user_id: user.id,
         name: form.name,
@@ -81,8 +131,8 @@ export function VisitorManagement() {
         status: 'pending',
         otp: otp,
         is_pre_approved: true,
-        host_name: profile?.full_name || user.user_metadata?.full_name || 'Resident',
-        flat_no: profile?.flat_no || user.user_metadata?.flat_no || 'Unknown'
+        host_name: profile?.full_name || user?.user_metadata?.full_name || 'Resident',
+        flat_no: profile?.flat_no || user?.user_metadata?.flat_no || 'Unknown'
       });
 
       if (error) throw error;
@@ -94,6 +144,12 @@ export function VisitorManagement() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const closeForm = () => {
+    setShowForm(false);
+    setGeneratedOTP(null);
+    setForm({ name: '', phone: '', purpose: 'Personal Visit', date: '', time: '' });
   };
 
   const deliveries = visitors.filter(v => v.type === 'delivery');
@@ -118,6 +174,14 @@ export function VisitorManagement() {
           <Plus size={16} /> Pre-Approve Guest
         </button>
       </div>
+
+      {/* Offline notice */}
+      {isOffline && (
+        <div className="flex items-center gap-3 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl text-sm text-amber-700 dark:text-amber-400">
+          <WifiOff size={16} className="flex-shrink-0" />
+          <span><strong>Demo Mode:</strong> Showing sample visitors. Connect a valid Supabase key to persist real data.</span>
+        </div>
+      )}
 
       {/* Modern Stats */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -192,8 +256,8 @@ export function VisitorManagement() {
                 animate={{ opacity: 1, y: 0 }}
                 className="card p-5 flex items-center gap-5 hover:shadow-lg transition-all"
               >
-                <div className="w-12 h-12 rounded-2xl bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 font-bold flex-shrink-0">
-                  {entry.name[0].toUpperCase()}
+                <div className="w-12 h-12 rounded-2xl bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 font-bold flex-shrink-0 text-lg">
+                  {entry.name ? entry.name[0].toUpperCase() : '?'}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
@@ -201,7 +265,7 @@ export function VisitorManagement() {
                     {entry.is_pre_approved && <span className="bg-green-100 text-green-700 text-[9px] font-black px-1.5 py-0.5 rounded uppercase">Pre-approved</span>}
                   </div>
                   <div className="flex items-center gap-3 text-[10px] font-bold text-[hsl(var(--muted-foreground))]">
-                    <span className="flex items-center gap-1"><MapPin size={10} /> {entry.flat_no}</span>
+                    <span className="flex items-center gap-1"><MapPin size={10} /> {entry.flat_no || 'N/A'}</span>
                     <span className="flex items-center gap-1"><Shield size={10} /> {entry.purpose}</span>
                   </div>
                 </div>
@@ -223,6 +287,7 @@ export function VisitorManagement() {
              <div className="card p-20 text-center border-dashed">
                 <Smartphone size={48} className="mx-auto mb-4 opacity-10" />
                 <p className="font-bold text-lg">No active deliveries</p>
+                <p className="text-sm text-[hsl(var(--muted-foreground))]">Delivery tracking will appear here.</p>
              </div>
           ) : (
             deliveries.map(delivery => (
@@ -257,6 +322,14 @@ export function VisitorManagement() {
                 </div>
               </div>
             ))}
+
+            {visitors.filter(v => v.is_pre_approved && v.status === 'pending').length === 0 && (
+              <div className="card p-10 text-center border-dashed mb-2">
+                <UserCheck size={36} className="mx-auto mb-2 opacity-20" />
+                <p className="text-sm font-bold text-[hsl(var(--muted-foreground))]">No pre-approved guests yet</p>
+              </div>
+            )}
+
             <div className="card p-10 border-dashed text-center cursor-pointer hover:bg-[hsl(var(--muted))]/50 transition-all group" onClick={() => setShowForm(true)}>
               <div className="w-12 h-12 rounded-full bg-[hsl(var(--muted))] flex items-center justify-center mx-auto mb-3 group-hover:scale-110 transition-transform">
                 <Plus size={24} className="text-[hsl(var(--muted-foreground))]" />
@@ -270,7 +343,7 @@ export function VisitorManagement() {
       {/* Pre-Approve Form Modal */}
       <AnimatePresence>
         {showForm && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={() => { setShowForm(false); setGeneratedOTP(null); }}>
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={closeForm}>
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
@@ -280,13 +353,13 @@ export function VisitorManagement() {
             >
               <div className="flex justify-between items-center mb-6">
                 <h3 className="text-xl font-black tracking-tight">Pre-Approve Guest</h3>
-                <button onClick={() => { setShowForm(false); setGeneratedOTP(null); }} className="p-2 hover:bg-[hsl(var(--muted))] rounded-xl"><X size={20} /></button>
+                <button onClick={closeForm} className="p-2 hover:bg-[hsl(var(--muted))] rounded-xl"><X size={20} /></button>
               </div>
 
               {!generatedOTP ? (
                 <form onSubmit={handlePreApprove} className="space-y-5">
                   <div>
-                    <label className="block text-[10px] font-black uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-2">Guest Full Name</label>
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-2">Guest Full Name *</label>
                     <input type="text" value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. John Doe" required className="input-field bg-[hsl(var(--muted))]/30" />
                   </div>
                   <div>
@@ -301,7 +374,7 @@ export function VisitorManagement() {
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-[10px] font-black uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-2">Visit Date</label>
-                      <input type="date" value={form.date} onChange={e => setForm(p => ({ ...p, date: e.target.value }))} required className="input-field bg-[hsl(var(--muted))]/30" />
+                      <input type="date" value={form.date} onChange={e => setForm(p => ({ ...p, date: e.target.value }))} className="input-field bg-[hsl(var(--muted))]/30" />
                     </div>
                     <div>
                       <label className="block text-[10px] font-black uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-2">Visit Time</label>
@@ -319,7 +392,7 @@ export function VisitorManagement() {
                   </div>
                   <p className="font-black text-2xl mb-1 tracking-tight">Success!</p>
                   <p className="text-xs text-[hsl(var(--muted-foreground))] font-bold uppercase mb-8">Guest is Pre-Approved</p>
-                  
+
                   <div className="p-8 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-3xl shadow-xl relative overflow-hidden">
                     <div className="absolute top-0 right-0 p-4 opacity-10">
                       <Shield size={100} />
@@ -328,9 +401,9 @@ export function VisitorManagement() {
                     <p className="text-6xl font-black tracking-[0.2em] text-white drop-shadow-lg">{generatedOTP}</p>
                     <p className="text-[10px] font-bold text-blue-100 mt-6 bg-white/10 py-2 px-4 rounded-full inline-block">Valid for 24 hours</p>
                   </div>
-                  
+
                   <button
-                    onClick={() => { setShowForm(false); setGeneratedOTP(null); }}
+                    onClick={closeForm}
                     className="btn-primary w-full mt-8 py-4 font-black text-xs uppercase tracking-widest"
                   >
                     Done & Close

@@ -1,8 +1,7 @@
 // @ts-nocheck
-// @ts-nocheck
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Megaphone, AlertTriangle, Calendar, Info, X, ChevronDown, Loader } from 'lucide-react';
+import { Plus, Megaphone, AlertTriangle, Calendar, Info, X, ChevronDown, Loader, WifiOff } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { supabase } from '../lib/supabase';
@@ -19,6 +18,12 @@ interface Notice {
   created_at: string;
 }
 
+const DEMO_NOTICES: Notice[] = [
+  { id: '1', title: 'Water Supply Maintenance', body: 'There will be a scheduled water supply maintenance tomorrow from 10 AM to 2 PM. Please store enough water for your needs.', category: 'urgent', author_name: 'Admin', is_pinned: true, created_at: new Date().toISOString() },
+  { id: '2', title: 'New Gym Timings', body: 'The central park gym will now be open from 5 AM to 11 PM daily to accommodate more residents.', category: 'general', author_name: 'RWA President', is_pinned: false, created_at: new Date(Date.now() - 86400000).toISOString() },
+  { id: '3', title: 'Holi Celebrations 2026', body: 'Join us for a vibrant Holi celebration in the main park on March 25th. Snacks and colors will be provided.', category: 'event', author_name: 'Cultural Committee', is_pinned: false, created_at: new Date(Date.now() - 172800000).toISOString() },
+];
+
 const categoryConfig: Record<string, { label: string; icon: any; color: string; border: string; bg: string }> = {
   urgent: { label: 'Urgent', icon: AlertTriangle, color: 'text-red-600 dark:text-red-400', border: 'border-l-4 border-red-500', bg: 'bg-red-50 dark:bg-red-900/10' },
   general: { label: 'General', icon: Info, color: 'text-blue-600 dark:text-blue-400', border: 'border-l-4 border-blue-500', bg: 'bg-blue-50 dark:bg-blue-900/10' },
@@ -33,6 +38,7 @@ export function NoticeBoard() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(true);
+  const [isOffline, setIsOffline] = useState(false);
   const [form, setForm] = useState({ title: '', body: '', category: 'general', is_pinned: false });
   const { isAdmin, profile, user } = useAuth();
   const { showToast } = useToast();
@@ -40,16 +46,22 @@ export function NoticeBoard() {
   useEffect(() => {
     fetchNotices();
     
-    // Subscribe to changes
-    const channel = supabase
-      .channel('notices_changes')
-      .on('postgres_changes', { event: '*', table: 'notices', schema: 'public' }, () => {
-        fetchNotices();
-      })
-      .subscribe();
+    let channel: any = null;
+    try {
+      channel = supabase
+        .channel('notices_changes')
+        .on('postgres_changes', { event: '*', table: 'notices', schema: 'public' }, () => {
+          fetchNotices();
+        })
+        .subscribe();
+    } catch (e) {
+      console.warn('Real-time subscription failed:', e);
+    }
 
     return () => {
-      supabase.removeChannel(channel);
+      if (channel) {
+        try { supabase.removeChannel(channel); } catch (_) {}
+      }
     };
   }, []);
 
@@ -61,10 +73,18 @@ export function NoticeBoard() {
         .order('is_pinned', { ascending: false })
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
-      setNotices(data || []);
+      if (error) {
+        console.warn('Notices fetch error (showing demo data):', error.message);
+        setIsOffline(true);
+        setNotices(DEMO_NOTICES);
+      } else {
+        setIsOffline(false);
+        setNotices(data || []);
+      }
     } catch (err: any) {
       console.error('Error fetching notices:', err.message);
+      setIsOffline(true);
+      setNotices(DEMO_NOTICES);
     } finally {
       setFetching(false);
     }
@@ -75,6 +95,23 @@ export function NoticeBoard() {
     setLoading(true);
 
     try {
+      if (isOffline) {
+        const newNotice: Notice = {
+          id: Date.now().toString(),
+          title: form.title,
+          body: form.body,
+          category: form.category,
+          is_pinned: form.is_pinned,
+          author_name: profile?.full_name || user?.user_metadata?.full_name || 'Admin',
+          created_at: new Date().toISOString()
+        };
+        setNotices(prev => [newNotice, ...prev]);
+        showToast('success', 'Notice Posted! (Demo)', 'Your notice has been published locally in demo mode.');
+        setShowAddForm(false);
+        setForm({ title: '', body: '', category: 'general', is_pinned: false });
+        return;
+      }
+
       const { error } = await supabase.from('notices').insert({
         title: form.title,
         body: form.body,
@@ -120,6 +157,14 @@ export function NoticeBoard() {
           </button>
         )}
       </div>
+
+      {/* Offline notice */}
+      {isOffline && (
+        <div className="flex items-center gap-3 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl text-sm text-amber-700 dark:text-amber-400">
+          <WifiOff size={16} className="flex-shrink-0" />
+          <span><strong>Demo Mode:</strong> Showing sample notices. Connect a valid Supabase key for live announcements.</span>
+        </div>
+      )}
 
       {/* Filter tabs */}
       <div className="flex items-center gap-2 flex-wrap bg-[hsl(var(--muted))]/50 p-1 rounded-2xl w-fit">
@@ -290,7 +335,7 @@ function NoticeCard({ notice, expandedId, setExpandedId }: { notice: any; expand
             >
               <div className="flex flex-col gap-0.5">
                 <span className="text-[10px] font-bold uppercase text-[hsl(var(--muted-foreground))] opacity-50">Published By</span>
-                <span className="text-xs font-bold">{notice.author_name}</span>
+                <span className="text-xs font-bold">{notice.author_name || 'Admin'}</span>
               </div>
               <div className="flex flex-col items-end gap-0.5">
                 <span className="text-[10px] font-bold uppercase text-[hsl(var(--muted-foreground))] opacity-50 text-right">Date</span>

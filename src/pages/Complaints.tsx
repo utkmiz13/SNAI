@@ -1,8 +1,7 @@
 // @ts-nocheck
-// @ts-nocheck
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, X, CheckCircle, AlertCircle, Loader, ChevronDown, MessageSquare } from 'lucide-react';
+import { Plus, X, CheckCircle, AlertCircle, Loader, ChevronDown, MessageSquare, WifiOff } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { supabase } from '../lib/supabase';
@@ -32,6 +31,13 @@ const categoryEmojis: Record<string, string> = {
   water: '💧', electricity: '⚡', security: '🔒', maintenance: '🔧', other: '📝'
 };
 
+// Seed demo complaints shown in offline/demo mode
+const DEMO_COMPLAINTS: Complaint[] = [
+  { id: '1', title: 'Street light broken near Gate 2', description: 'The street light near Gate 2 has been non-functional for 3 days. It creates safety issues at night.', category: 'electricity', status: 'in_progress', author_name: 'Ramesh Sharma', flat_no: 'Block-5, Flat-12', ticket_no: '#1042', created_at: new Date(Date.now() - 2 * 86400000).toISOString() },
+  { id: '2', title: 'Water supply irregular in Block 3', description: 'Water supply is coming for only 30 minutes in the morning. The timing is also not fixed.', category: 'water', status: 'pending', author_name: 'Priya Verma', flat_no: 'Block-3, Flat-7', ticket_no: '#1043', created_at: new Date(Date.now() - 86400000).toISOString() },
+  { id: '3', title: 'Garbage not collected for 2 days', description: 'The garbage van has not visited our block for 2 days. There is a bad smell in the area.', category: 'maintenance', status: 'resolved', author_name: 'Suresh Gupta', flat_no: 'Block-8, Flat-3', ticket_no: '#1044', created_at: new Date(Date.now() - 3 * 86400000).toISOString() },
+];
+
 export function Complaints() {
   const [complaints, setComplaints] = useState<Complaint[]>([]);
   const [activeStatus, setActiveStatus] = useState<Status>('all');
@@ -40,22 +46,29 @@ export function Complaints() {
   const [form, setForm] = useState({ title: '', description: '', category: 'water' as ComplaintCategory });
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(true);
+  const [isOffline, setIsOffline] = useState(false);
   const { profile, user, isAdmin } = useAuth();
   const { showToast } = useToast();
 
   useEffect(() => {
     fetchComplaints();
-    
-    // Subscribe to changes
-    const channel = supabase
-      .channel('complaints_changes')
-      .on('postgres_changes', { event: '*', table: 'complaints', schema: 'public' }, () => {
-        fetchComplaints();
-      })
-      .subscribe();
+
+    let channel: any = null;
+    try {
+      channel = supabase
+        .channel('complaints_changes')
+        .on('postgres_changes', { event: '*', table: 'complaints', schema: 'public' }, () => {
+          fetchComplaints();
+        })
+        .subscribe();
+    } catch (e) {
+      console.warn('Real-time subscription failed:', e);
+    }
 
     return () => {
-      supabase.removeChannel(channel);
+      if (channel) {
+        try { supabase.removeChannel(channel); } catch (_) {}
+      }
     };
   }, []);
 
@@ -66,27 +79,63 @@ export function Complaints() {
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
-      setComplaints(data || []);
+      if (error) {
+        console.warn('Complaints fetch error (showing demo data):', error.message);
+        setIsOffline(true);
+        setComplaints(DEMO_COMPLAINTS);
+      } else {
+        setIsOffline(false);
+        setComplaints(data || []);
+      }
     } catch (err: any) {
       console.error('Error fetching complaints:', err.message);
+      setIsOffline(true);
+      setComplaints(DEMO_COMPLAINTS);
     } finally {
       setFetching(false);
     }
   };
 
-  const filtered = activeStatus === 'all' 
-    ? complaints 
+  const filtered = activeStatus === 'all'
+    ? complaints
     : complaints.filter(c => c.status === activeStatus);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) return;
-    
+    if (!user) {
+      showToast('error', 'Not Logged In', 'You must be logged in to raise a complaint.');
+      return;
+    }
+    if (!form.title.trim() || !form.description.trim()) {
+      showToast('warning', 'Missing Fields', 'Please fill in all required fields.');
+      return;
+    }
+
     setLoading(true);
     const ticketNo = `#${Math.floor(1000 + Math.random() * 9000)}`;
-    
+
     try {
+      if (isOffline) {
+        // Demo mode: add locally
+        const newComplaint: Complaint = {
+          id: Date.now().toString(),
+          user_id: user.id,
+          title: form.title,
+          description: form.description,
+          category: form.category,
+          author_name: profile?.full_name || user.user_metadata?.full_name || 'Resident',
+          flat_no: profile?.flat_no || user.user_metadata?.flat_no || 'Unknown',
+          ticket_no: ticketNo,
+          status: 'pending',
+          created_at: new Date().toISOString(),
+        };
+        setComplaints(prev => [newComplaint, ...prev]);
+        showToast('success', 'Complaint Raised! (Demo)', `Ticket ${ticketNo} created locally. Connect Supabase to persist.`);
+        setShowForm(false);
+        setForm({ title: '', description: '', category: 'water' });
+        return;
+      }
+
       const { error } = await supabase.from('complaints').insert({
         user_id: user.id,
         title: form.title,
@@ -111,6 +160,14 @@ export function Complaints() {
   };
 
   const updateStatus = async (id: string, newStatus: string) => {
+    // Optimistic update
+    setComplaints(prev => prev.map(c => c.id === id ? { ...c, status: newStatus } : c));
+
+    if (isOffline) {
+      showToast('success', 'Status Updated (Demo)', `Complaint marked as ${newStatus.replace('_', ' ')}.`);
+      return;
+    }
+
     try {
       const { error } = await supabase
         .from('complaints')
@@ -120,6 +177,8 @@ export function Complaints() {
       if (error) throw error;
       showToast('success', 'Status Updated', `Complaint marked as ${newStatus.replace('_', ' ')}.`);
     } catch (err: any) {
+      // Revert on error
+      fetchComplaints();
       showToast('error', 'Update Failed', err.message);
     }
   };
@@ -150,6 +209,14 @@ export function Complaints() {
           <Plus size={16} /> Raise Complaint
         </button>
       </div>
+
+      {/* Offline notice */}
+      {isOffline && (
+        <div className="flex items-center gap-3 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl text-sm text-amber-700 dark:text-amber-400">
+          <WifiOff size={16} className="flex-shrink-0" />
+          <span><strong>Demo Mode:</strong> Showing sample data. Connect a valid Supabase key to persist real complaints.</span>
+        </div>
+      )}
 
       {/* Stats bar */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -236,14 +303,14 @@ export function Complaints() {
                       {isAdmin && complaint.status !== 'resolved' && (
                         <div className="mt-4 flex gap-2 border-t border-[hsl(var(--border))]/30 pt-4">
                           {complaint.status === 'pending' && (
-                            <button 
+                            <button
                               onClick={(e) => { e.stopPropagation(); updateStatus(complaint.id, 'in_progress'); }}
                               className="btn-secondary text-[10px] py-1.5 px-3 bg-blue-100 text-blue-700 border-blue-200"
                             >
                               Start Working
                             </button>
                           )}
-                          <button 
+                          <button
                             onClick={(e) => { e.stopPropagation(); updateStatus(complaint.id, 'resolved'); }}
                             className="btn-primary text-[10px] py-1.5 px-3 bg-green-600 hover:bg-green-700"
                           >
@@ -305,14 +372,14 @@ export function Complaints() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))] mb-1.5">Identity</label>
-                    <div className="input-field text-sm bg-[hsl(var(--muted))] flex items-center gap-2 opacity-70">
-                      <MessageSquare size={14} /> {profile?.full_name || 'Resident'}
+                    <label className="block text-xs font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))] mb-1.5">Your Identity</label>
+                    <div className="input-field text-sm bg-[hsl(var(--muted))] flex items-center gap-2 opacity-70 cursor-not-allowed">
+                      <MessageSquare size={14} /> {profile?.full_name || user?.user_metadata?.full_name || 'Guest Resident'}
                     </div>
                   </div>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))] mb-1.5">Subject</label>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))] mb-1.5">Subject *</label>
                   <input
                     type="text"
                     value={form.title}
@@ -323,7 +390,7 @@ export function Complaints() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))] mb-1.5">Detailed Description</label>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))] mb-1.5">Detailed Description *</label>
                   <textarea
                     value={form.description}
                     onChange={e => setForm(p => ({ ...p, description: e.target.value }))}

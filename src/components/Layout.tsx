@@ -60,21 +60,28 @@ export function Layout() {
   useEffect(() => {
     if (user) {
       fetchNotifications();
-      
-      // Subscribe to notifications
-      const channel = supabase
-        .channel('public_notifications')
-        .on('postgres_changes' as any, { event: 'INSERT', table: 'notifications', schema: 'public' }, (payload: any) => {
-          const newNotif = payload.new as Notification;
-          if (!newNotif.user_id || newNotif.user_id === user.id) {
-            setNotifications(prev => [newNotif, ...prev]);
-            showToast('info', newNotif.title, newNotif.message);
-          }
-        })
-        .subscribe();
+
+      let channel: any = null;
+      try {
+        // Subscribe to notifications
+        channel = supabase
+          .channel('public_notifications')
+          .on('postgres_changes' as any, { event: 'INSERT', table: 'notifications', schema: 'public' }, (payload: any) => {
+            const newNotif = payload.new as Notification;
+            if (!newNotif.user_id || newNotif.user_id === user.id) {
+              setNotifications(prev => [newNotif, ...prev]);
+              showToast('info', newNotif.title, newNotif.message);
+            }
+          })
+          .subscribe();
+      } catch (e) {
+        console.warn('Notification subscription failed:', e);
+      }
 
       return () => {
-        supabase.removeChannel(channel);
+        if (channel) {
+          try { supabase.removeChannel(channel); } catch (_) {}
+        }
       };
     }
   }, [user]);
@@ -85,14 +92,16 @@ export function Layout() {
       const { data, error } = await supabase
         .from('notifications')
         .select('*')
-        .or(`user_id.eq.${user.id},user_id.is.null`)
         .order('created_at', { ascending: false })
         .limit(10);
 
       if (error) throw error;
-      setNotifications(data || []);
+      // Filter for current user or global notifications client-side
+      const filtered = (data || []).filter((n: Notification) => !n.user_id || n.user_id === user.id);
+      setNotifications(filtered);
     } catch (err) {
-      console.error('Error fetching notifications:', err);
+      // Silently ignore — notifications are a non-critical feature
+      console.warn('Notifications unavailable:', err);
     }
   };
 

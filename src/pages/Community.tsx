@@ -1,8 +1,7 @@
 // @ts-nocheck
-// @ts-nocheck
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Heart, Reply, X, MessageCircle, Clock, Loader, Share2, Award, Calendar, MapPin } from 'lucide-react';
+import { Plus, Heart, Reply, X, MessageCircle, Clock, Loader, Share2, Award, Calendar, MapPin, WifiOff } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { supabase } from '../lib/supabase';
@@ -18,6 +17,12 @@ interface Post {
   created_at: string;
   user_id: string;
 }
+
+const DEMO_POSTS: Post[] = [
+  { id: '1', author_name: 'Rahul Kapoor', content: 'Does anyone know a good plumber in the colony? My kitchen sink is leaking.', category: 'recommendations', likes: 5, created_at: new Date(Date.now() - 3600000).toISOString(), user_id: '101' },
+  { id: '2', author_name: 'Anita Desai', content: 'Found a set of keys near the central park gym. Please contact if they are yours.', category: 'lost_found', likes: 12, created_at: new Date(Date.now() - 7200000).toISOString(), user_id: '102' },
+  { id: '3', author_name: 'Security Admin', content: 'Emergency drill scheduled for tomorrow 10 AM. Please do not panic.', category: 'emergency', likes: 45, created_at: new Date(Date.now() - 10800000).toISOString(), user_id: '000' },
+];
 
 const EVENTS = [
   { id: 1, title: 'Diwali Mela 2026', date: 'Nov 12, 2026', time: '6:00 PM - 10:00 PM', location: 'Central Park, Near Block 1', description: 'Join us for an amazing Diwali celebration with food stalls, games, cultural performances, and a grand fireworks show! This is our biggest community event of the year.', rsvp: 67, capacity: 200, registered: false },
@@ -51,6 +56,7 @@ export function Community() {
   const [showPostForm, setShowPostForm] = useState(false);
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(true);
+  const [isOffline, setIsOffline] = useState(false);
   const [form, setForm] = useState({ content: '', category: 'general' });
   const { profile, user } = useAuth();
   const { showToast } = useToast();
@@ -58,15 +64,22 @@ export function Community() {
   useEffect(() => {
     fetchPosts();
     
-    const channel = supabase
-      .channel('community_posts_changes')
-      .on('postgres_changes', { event: '*', table: 'community_posts', schema: 'public' }, () => {
-        fetchPosts();
-      })
-      .subscribe();
+    let channel: any = null;
+    try {
+      channel = supabase
+        .channel('community_posts_changes')
+        .on('postgres_changes', { event: '*', table: 'community_posts', schema: 'public' }, () => {
+          fetchPosts();
+        })
+        .subscribe();
+    } catch (e) {
+      console.warn('Real-time subscription failed:', e);
+    }
 
     return () => {
-      supabase.removeChannel(channel);
+      if (channel) {
+        try { supabase.removeChannel(channel); } catch (_) {}
+      }
     };
   }, []);
 
@@ -77,10 +90,18 @@ export function Community() {
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
-      setPosts(data || []);
+      if (error) {
+        console.warn('Posts fetch error (showing demo data):', error.message);
+        setIsOffline(true);
+        setPosts(DEMO_POSTS);
+      } else {
+        setIsOffline(false);
+        setPosts(data || []);
+      }
     } catch (err) {
       console.error('Error fetching posts:', err);
+      setIsOffline(true);
+      setPosts(DEMO_POSTS);
     } finally {
       setFetching(false);
     }
@@ -88,10 +109,30 @@ export function Community() {
 
   const handlePostSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) return;
+    if (!user) {
+      showToast('error', 'Not Logged In', 'Please login to post.');
+      return;
+    }
     
     setLoading(true);
     try {
+      if (isOffline) {
+        const newPost: Post = {
+          id: Date.now().toString(),
+          user_id: user.id,
+          author_name: profile?.full_name || user.user_metadata?.full_name || 'Resident',
+          content: form.content,
+          category: form.category,
+          likes: 0,
+          created_at: new Date().toISOString()
+        };
+        setPosts(prev => [newPost, ...prev]);
+        showToast('success', 'Post Published! (Demo)', 'Shared locally in demo mode.');
+        setShowPostForm(false);
+        setForm({ content: '', category: 'general' });
+        return;
+      }
+
       const { error } = await supabase.from('community_posts').insert({
         user_id: user.id,
         author_name: profile?.full_name || user.user_metadata?.full_name || 'Resident',
@@ -113,6 +154,11 @@ export function Community() {
   };
 
   const handleLike = async (postId: string, currentLikes: number) => {
+    // Optimistic update
+    setPosts(prev => prev.map(p => p.id === postId ? { ...p, likes: currentLikes + 1 } : p));
+    
+    if (isOffline) return;
+
     try {
       const { error } = await supabase
         .from('community_posts')
@@ -146,6 +192,14 @@ export function Community() {
           </button>
         )}
       </div>
+
+      {/* Offline notice */}
+      {isOffline && (
+        <div className="flex items-center gap-3 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl text-sm text-amber-700 dark:text-amber-400">
+          <WifiOff size={16} className="flex-shrink-0" />
+          <span><strong>Demo Mode:</strong> Showing sample posts. Connect a valid Supabase key for live feed.</span>
+        </div>
+      )}
 
       {/* Modern Tabs */}
       <div className="flex p-1.5 bg-[hsl(var(--muted))]/50 rounded-2xl w-fit gap-1">
@@ -189,12 +243,12 @@ export function Community() {
                 <div key={post.id} className="card p-6 hover:shadow-xl transition-all border-b-4 border-b-blue-500/10">
                   <div className="flex items-start gap-4">
                     <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-100 to-indigo-100 dark:from-blue-900/30 dark:to-indigo-900/30 flex items-center justify-center text-blue-600 dark:text-blue-400 font-black text-lg flex-shrink-0">
-                      {post.author_name[0].toUpperCase()}
+                      {post.author_name ? post.author_name[0].toUpperCase() : '?'}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-black text-sm">{post.author_name}</span>
+                          <span className="font-black text-sm">{post.author_name || 'Resident'}</span>
                           <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${categoryColors[post.category] || categoryColors.general}`}>
                             {categoryLabels[post.category] || '💬 General'}
                           </span>
@@ -209,7 +263,7 @@ export function Community() {
                           onClick={() => handleLike(post.id, post.likes)}
                           className="flex items-center gap-2 text-xs font-bold text-[hsl(var(--muted-foreground))] hover:text-red-500 transition-colors group"
                         >
-                          <Heart size={16} className="group-hover:fill-red-500 group-hover:scale-110 transition-all" />
+                          <Heart size={16} className={`group-hover:scale-110 transition-all ${post.likes > 0 ? 'fill-red-500 text-red-500' : ''}`} />
                           {post.likes || 0}
                         </button>
                         <button className="flex items-center gap-2 text-xs font-bold text-[hsl(var(--muted-foreground))] hover:text-blue-500 transition-colors">
