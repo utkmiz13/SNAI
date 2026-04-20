@@ -30,30 +30,39 @@ export function ProfilePage() {
   }, [profile, editing]);
 
   const handleSave = async () => {
-    if (!profile?.id) return;
+    const userId = profile?.id || user?.id;
+    if (!userId) {
+      showToast('error', 'Auth Error', 'You must be logged in to save details.');
+      return;
+    }
+
     try {
       const { error } = await supabase
         .from('profiles')
-        .update({
+        .upsert({
+          id: userId,
+          username: profile?.username || user?.user_metadata?.username || user?.email?.split('@')[0],
           full_name: form.full_name,
           phone: form.phone,
           flat_no: form.flat_no,
           family_members: parseInt(form.family_members) || 1,
-        })
-        .eq('id', profile.id);
+          role: profile?.role || 'resident',
+          updated_at: new Date().toISOString(),
+        });
 
       if (error) throw error;
-      showToast('success', 'Profile Updated!', 'Your details have been saved.');
+      showToast('success', 'Profile Saved!', 'Your details are now securely stored.');
       setEditing(false);
-      refreshProfile();
+      if (refreshProfile) refreshProfile();
     } catch (err: any) {
-      showToast('error', 'Update Failed', err.message);
+      console.error('Save error:', err);
+      showToast('error', 'Save Failed', err.message);
     }
   };
 
   const initials = profile?.full_name 
     ? profile.full_name.split(' ').filter(Boolean).map(n => n[0]).join('').toUpperCase().slice(0, 2) 
-    : (profile?.username?.[0]?.toUpperCase() || 'U');
+    : (profile?.username?.[0]?.toUpperCase() || user?.email?.[0]?.toUpperCase() || 'U');
 
   return (
     <div className="space-y-6 max-w-2xl mx-auto pb-10">
@@ -67,7 +76,7 @@ export function ProfilePage() {
             {initials}
           </div>
           <h2 className="text-2xl font-bold">{profile?.full_name || 'Resident'}</h2>
-          <p className="text-[hsl(var(--muted-foreground))]">@{profile?.username || 'user'}</p>
+          <p className="text-[hsl(var(--muted-foreground))]">@{profile?.username || user?.user_metadata?.username || 'user'}</p>
         </div>
       </div>
 
@@ -77,7 +86,7 @@ export function ProfilePage() {
           <h3 className="section-title">Account Details</h3>
           {!editing ? (
             <button onClick={() => setEditing(true)} className="btn-secondary flex items-center gap-2 text-xs">
-              <Edit2 size={12} /> Edit
+              <Edit2 size={12} /> Edit Profile
             </button>
           ) : (
             <div className="flex gap-2">
@@ -137,7 +146,7 @@ export function ProfilePage() {
       </div>
 
       <div className="text-center text-xs text-[hsl(var(--muted-foreground))]">
-        Member since: {profile?.created_at ? new Date(profile.created_at).toLocaleDateString() : 'N/A'}
+        Member Since: <span className="font-bold text-foreground">{profile?.created_at ? new Date(profile.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' }) : 'Joining now...'}</span>
       </div>
     </div>
   );
