@@ -198,7 +198,7 @@ export function Complaints() {
         }
       }
       
-      showToast('success', 'Status Updated', `Complaint marked as ${newStatus.replace('_', ' ')}.`);
+      showToast('success', 'Issue Resolved!', `Thank you for helping the community!`);
     } catch (err: any) {
       // Revert on error
       fetchComplaints();
@@ -215,6 +215,17 @@ export function Complaints() {
     in_progress: complaints.filter(c => c.status === 'in_progress').length,
     resolved: complaints.filter(c => c.status === 'resolved').length,
   };
+
+  // Prevent items from disappearing instantly when status changes
+  const [visibleComplaints, setVisibleComplaints] = useState<Complaint[]>([]);
+
+  useEffect(() => {
+    const filtered = activeStatus === 'all'
+      ? complaints
+      : complaints.filter(c => c.status === activeStatus || (c.id === expandedId));
+    
+    setVisibleComplaints(filtered);
+  }, [complaints, activeStatus, expandedId]);
 
   if (fetching) {
     return (
@@ -261,7 +272,7 @@ export function Complaints() {
       {/* Complaints list */}
       <div className="space-y-3">
         <AnimatePresence>
-          {filtered.map(complaint => {
+          {visibleComplaints.map(complaint => {
             const cfg = statusConfig[complaint.status as keyof typeof statusConfig] || statusConfig.pending;
             const isExpanded = expandedId === complaint.id;
             const timeAgo = new Date(complaint.created_at).toLocaleDateString('en-IN', {
