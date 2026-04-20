@@ -139,12 +139,14 @@ export function ProfilePage() {
         </div>
       </div>
     );
-  } catch (e) {
+  } catch (e: any) {
     console.error('ProfilePage crash:', e);
     return (
-      <div className="p-8 text-center card bg-red-50 dark:bg-red-900/10 border-red-200">
-        <h2 className="text-xl font-bold text-red-600 mb-2">Profile Page Error</h2>
-        <p className="text-sm text-red-500 mb-4">Something went wrong while loading your profile.</p>
+      <div className="p-8 text-center card bg-red-50 dark:bg-red-900/10 border-red-200 m-6">
+        <h2 className="text-xl font-bold text-red-600 mb-2">Technical Error Detected</h2>
+        <p className="text-sm text-red-500 mb-4 font-mono bg-white p-3 rounded-lg border border-red-100">
+          {e.message || 'Unknown Error'}
+        </p>
         <button onClick={() => window.location.reload()} className="btn-primary bg-red-600 hover:bg-red-700">Reload App</button>
       </div>
     );
