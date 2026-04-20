@@ -54,9 +54,9 @@ export function ProfilePage() {
     }
   };
 
-  const initials = profile?.full_name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) 
-    || profile?.username?.[0]?.toUpperCase() 
-    || 'U';
+  const initials = profile?.full_name 
+    ? profile.full_name.split(' ').filter(Boolean).map(n => n[0]).join('').toUpperCase().slice(0, 2) 
+    : profile?.username?.[0]?.toUpperCase() || 'U';
 
   return (
     <div className="space-y-6 max-w-2xl mx-auto">
