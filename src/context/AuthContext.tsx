@@ -166,8 +166,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const isAdmin = profile?.role === 'admin' || profile?.role === 'leader';
 
+  const value = React.useMemo(() => ({
+    user,
+    profile,
+    loading,
+    signIn,
+    signUp,
+    signOut,
+    loginAsGuest,
+    refreshProfile,
+    isAdmin
+  }), [user, profile, loading, loginAsGuest, refreshProfile, isAdmin]);
+
   return (
-    <AuthContext.Provider value={{ user, profile, loading, signIn, signUp, signOut, loginAsGuest, refreshProfile, isAdmin }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );
