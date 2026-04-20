@@ -7,8 +7,18 @@ import { useToast } from '../context/ToastContext';
 import { supabase } from '../lib/supabase';
 
 export function ProfilePage() {
-  const { profile, refreshProfile } = useAuth();
+  const { profile, refreshProfile, loading: authLoading } = useAuth();
   const { showToast } = useToast();
+  
+  if (authLoading || (!profile && !localStorage.getItem('isGuest'))) {
+    return (
+      <div className="min-h-[60vh] flex flex-col items-center justify-center gap-4">
+        <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-[hsl(var(--primary))]"></div>
+        <p className="text-sm text-[hsl(var(--muted-foreground))] animate-pulse">Loading profile data...</p>
+      </div>
+    );
+  }
+
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({
     full_name: profile?.full_name || '',
