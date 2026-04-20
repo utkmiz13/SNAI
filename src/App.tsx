@@ -17,6 +17,7 @@ import { Community } from './pages/Community';
 import { LocalServices } from './pages/LocalServices';
 import { Documents } from './pages/Documents';
 import { ProfilePage } from './pages/ProfilePage';
+import { Emergency } from './pages/Emergency';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -50,6 +51,7 @@ function AppRoutes() {
         <Route path="gallery" element={<Gallery />} />
         <Route path="admin" element={<AdminPanel />} />
         <Route path="profile" element={<ProfilePage />} />
+        <Route path="emergency" element={<Emergency />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

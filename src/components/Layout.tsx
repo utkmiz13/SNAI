@@ -34,6 +34,7 @@ const navItems = [
   { path: '/documents', icon: <FileText size={18} />, label: 'Documents' },
   { path: '/ai', icon: <Bot size={18} />, label: 'AI Assistant' },
   { path: '/gallery', icon: <ImageIcon size={18} />, label: 'Gallery' },
+  { path: '/emergency', icon: <ShieldAlert size={18} />, label: 'Emergency' },
 ];
 
 const adminNavItems = [
@@ -129,7 +130,7 @@ export function Layout() {
   };
 
   const handleSOS = () => {
-    alert('🚨 EMERGENCY SOS SENT!\n\nAlerted:\n• Society Security\n• Colony Leader\n• Nearest Help\n\nHelp is on the way!');
+    navigate('/emergency');
   };
 
   const handleSignOut = () => {
