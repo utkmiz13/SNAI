@@ -19,6 +19,7 @@ interface Complaint {
   flat_no: string;
   ticket_no: string;
   created_at: string;
+  resolved_by?: string;
 }
 
 const statusConfig = {
@@ -160,8 +161,12 @@ export function Complaints() {
   };
 
   const updateStatus = async (id: string, newStatus: string) => {
+    const resolverName = profile?.full_name || user?.user_metadata?.full_name || 'Resident';
+    
     // Optimistic update
-    setComplaints(prev => prev.map(c => c.id === id ? { ...c, status: newStatus } : c));
+    setComplaints(prev => prev.map(c => 
+      c.id === id ? { ...c, status: newStatus, resolved_by: newStatus === 'resolved' ? resolverName : undefined } : c
+    ));
 
     if (isOffline) {
       showToast('success', 'Status Updated (Demo)', `Complaint marked as ${newStatus.replace('_', ' ')}.`);
@@ -169,9 +174,14 @@ export function Complaints() {
     }
 
     try {
+      const updateData: any = { status: newStatus };
+      if (newStatus === 'resolved') {
+        updateData.resolved_by = resolverName;
+      }
+
       const { error } = await supabase
         .from('complaints')
-        .update({ status: newStatus })
+        .update(updateData)
         .eq('id', id);
 
       if (error) throw error;
@@ -182,6 +192,9 @@ export function Complaints() {
       showToast('error', 'Update Failed', err.message);
     }
   };
+
+  const isGuest = user?.id === '00000000-0000-0000-0000-000000000000';
+  const isRegistered = user && !isGuest;
 
   const counts = {
     all: complaints.length,
@@ -300,23 +313,43 @@ export function Complaints() {
                         </div>
                       </div>
 
-                      {isAdmin && complaint.status !== 'resolved' && (
-                        <div className="mt-4 flex gap-2 border-t border-[hsl(var(--border))]/30 pt-4">
-                          {complaint.status === 'pending' && (
-                            <button
-                              onClick={(e) => { e.stopPropagation(); updateStatus(complaint.id, 'in_progress'); }}
-                              className="btn-secondary text-[10px] py-1.5 px-3 bg-blue-100 text-blue-700 border-blue-200"
-                            >
-                              Start Working
-                            </button>
-                          )}
-                          <button
-                            onClick={(e) => { e.stopPropagation(); updateStatus(complaint.id, 'resolved'); }}
-                            className="btn-primary text-[10px] py-1.5 px-3 bg-green-600 hover:bg-green-700"
-                          >
-                            Mark Resolved ✓
-                          </button>
+                      {/* Display who resolved it if applicable */}
+                      {complaint.status === 'resolved' && (
+                        <div className="mt-3 p-2.5 bg-green-100/50 dark:bg-green-900/20 rounded-xl flex items-center gap-2 border border-green-200 dark:border-green-800/50">
+                          <CheckCircle size={14} className="text-green-600" />
+                          <span className="text-[10px] font-bold text-green-700 dark:text-green-400">
+                            Resolved by {complaint.resolved_by || 'Resident'}
+                          </span>
                         </div>
+                      )}
+
+                      {/* Resolver Actions - Only for Registered Residents */}
+                      {isRegistered && complaint.status !== 'resolved' && (
+                        <div className="mt-4 flex flex-col gap-3 border-t border-[hsl(var(--border))]/30 pt-4">
+                          <p className="text-[10px] font-black uppercase tracking-widest text-[hsl(var(--muted-foreground))]">Resident Action</p>
+                          <div className="flex gap-2">
+                            {complaint.status === 'pending' && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); updateStatus(complaint.id, 'in_progress'); }}
+                                className="btn-secondary text-[10px] py-1.5 px-3 bg-blue-100 text-blue-700 border-blue-200"
+                              >
+                                I'm helping with this
+                              </button>
+                            )}
+                            <button
+                              onClick={(e) => { e.stopPropagation(); updateStatus(complaint.id, 'resolved'); }}
+                              className="btn-primary text-[10px] py-1.5 px-3 bg-green-600 hover:bg-green-700 shadow-md shadow-green-500/20"
+                            >
+                              Resolve Issue ✓
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                      
+                      {isGuest && complaint.status !== 'resolved' && (
+                        <p className="mt-4 text-[9px] font-medium text-[hsl(var(--muted-foreground))] italic">
+                          * Log in with a resident account to resolve issues.
+                        </p>
                       )}
                     </motion.div>
                   )}
