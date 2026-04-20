@@ -185,7 +185,8 @@ export function Complaints() {
         .eq('id', id);
 
       if (error) {
-        // Fallback: If resolved_by column is missing, try updating only the status
+        console.warn('Primary update failed, trying fallback:', error);
+        // Fallback: If resolved_by column is missing (Error 42703), try updating only the status
         if (error.message.includes('resolved_by') || error.code === '42703') {
           const { error: fallbackError } = await supabase
             .from('complaints')
@@ -200,9 +201,10 @@ export function Complaints() {
       
       showToast('success', 'Issue Resolved!', `Thank you for helping the community!`);
     } catch (err: any) {
+      console.error('Final update error:', err);
       // Revert on error
       fetchComplaints();
-      showToast('error', 'Update Failed', err.message);
+      showToast('error', 'Update Failed', `${err.message} (Code: ${err.code || 'unknown'})`);
     }
   };
 
