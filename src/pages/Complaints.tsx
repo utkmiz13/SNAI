@@ -184,7 +184,20 @@ export function Complaints() {
         .update(updateData)
         .eq('id', id);
 
-      if (error) throw error;
+      if (error) {
+        // Fallback: If resolved_by column is missing, try updating only the status
+        if (error.message.includes('resolved_by') || error.code === '42703') {
+          const { error: fallbackError } = await supabase
+            .from('complaints')
+            .update({ status: newStatus })
+            .eq('id', id);
+          
+          if (fallbackError) throw fallbackError;
+        } else {
+          throw error;
+        }
+      }
+      
       showToast('success', 'Status Updated', `Complaint marked as ${newStatus.replace('_', ' ')}.`);
     } catch (err: any) {
       // Revert on error
