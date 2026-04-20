@@ -75,37 +75,23 @@ export function Home() {
 
   const fetchData = async () => {
     try {
-      // Fetch Notices
-      const { data: noticeData, error: nErr } = await supabase
-        .from('notices')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(3);
-      
-      // Fetch Complaints
-      const { data: complaintData, error: cErr } = await supabase
-        .from('complaints')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(2);
+      // Parallel fetching for better performance
+      const [noticeRes, complaintRes, visitorRes] = await Promise.all([
+        supabase.from('notices').select('*').order('created_at', { ascending: false }).limit(3),
+        supabase.from('complaints').select('*').order('created_at', { ascending: false }).limit(2),
+        supabase.from('visitors').select('*').order('created_at', { ascending: false }).limit(2)
+      ]);
 
-      // Fetch Visitors
-      const { data: visitorData, error: vErr } = await supabase
-        .from('visitors')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(2);
-
-      if (nErr || cErr || vErr) {
+      if (noticeRes.error || complaintRes.error || visitorRes.error) {
         setIsOffline(true);
         setNotices(DEMO_NOTICES);
         setComplaints(DEMO_COMPLAINTS);
         setVisitors(DEMO_VISITORS);
       } else {
         setIsOffline(false);
-        setNotices(noticeData || []);
-        setComplaints(complaintData || []);
-        setVisitors(visitorData || []);
+        setNotices(noticeRes.data || []);
+        setComplaints(complaintRes.data || []);
+        setVisitors(visitorRes.data || []);
       }
     } catch (err) {
       console.error('Error fetching dashboard data:', err);

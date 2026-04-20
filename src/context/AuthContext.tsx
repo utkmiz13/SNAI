@@ -65,13 +65,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     let mounted = true;
 
-    // Safety timeout: if Supabase doesn't respond in 5 seconds, show the app anyway
+    // Safety timeout: if Supabase doesn't respond in 2.5 seconds, show the app anyway
     const timeout = setTimeout(() => {
       if (mounted) {
-        console.warn('Auth session timeout: check Supabase connection');
+        console.warn('Auth session timeout: Switching to offline-first mode');
         setLoading(false);
       }
-    }, 5000);
+    }, 2500);
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!mounted) return;
@@ -81,11 +81,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!mounted) return;
       setUser(session?.user ?? null);
       if (session?.user) {
-        await fetchProfile(session.user.id);
+        // Fetch profile without awaiting to avoid blocking navigation/state updates
+        fetchProfile(session.user.id);
       } else {
         setProfile(null);
       }
