@@ -287,6 +287,11 @@ export function Complaints() {
                         <span className={`badge ${cfg.color} text-[10px] px-2 py-0.5 flex items-center gap-1 uppercase font-bold tracking-wider`}>
                           {cfg.icon} {cfg.label}
                         </span>
+                        {complaint.status === 'resolved' && (
+                          <span className="badge badge-green text-[9px] px-2 py-0.5 flex items-center gap-1 uppercase font-black tracking-tighter bg-green-500/20 text-green-700 border-green-500/30">
+                             By {complaint.resolved_by || 'Resident'}
+                          </span>
+                        )}
                         <span className="text-[10px] font-mono text-[hsl(var(--muted-foreground))] bg-[hsl(var(--muted))] px-1.5 py-0.5 rounded">
                           {complaint.ticket_no}
                         </span>
@@ -294,16 +299,6 @@ export function Complaints() {
                       <p className={`text-xs text-[hsl(var(--muted-foreground))] leading-relaxed ${isExpanded ? '' : 'line-clamp-1'}`}>
                         {complaint.description}
                       </p>
-                      
-                      {/* Resolved By Badge - Visible even when collapsed */}
-                      {complaint.status === 'resolved' && (
-                        <div className="mt-2 flex items-center gap-1.5 px-2 py-1 bg-green-500/10 border border-green-500/20 rounded-lg w-fit">
-                          <CheckCircle size={10} className="text-green-600" />
-                          <span className="text-[9px] font-bold text-green-700 dark:text-green-400 uppercase tracking-wider">
-                            Resolved by {complaint.resolved_by || 'Resident'}
-                          </span>
-                        </div>
-                      )}
                     </div>
                   </div>
                   <ChevronDown size={16} className={`text-[hsl(var(--muted-foreground))] flex-shrink-0 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
