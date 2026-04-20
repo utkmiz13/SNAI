@@ -1,154 +1,144 @@
 // @ts-nocheck
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { User, Edit2, Phone, Home, Mail, Users, Save, X, Camera } from 'lucide-react';
+import { User, Edit2, Phone, Home, Save, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { supabase } from '../lib/supabase';
 
 export function ProfilePage() {
-  try {
-    const { profile, refreshProfile } = useAuth();
-    const { showToast } = useToast();
-    const [editing, setEditing] = useState(false);
-    const [form, setForm] = useState({
-      full_name: profile?.full_name || '',
-      phone: profile?.phone || '',
-      flat_no: profile?.flat_no || '',
-      family_members: profile?.family_members || 1,
-    });
+  const { profile, refreshProfile } = useAuth();
+  const { showToast } = useToast();
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState({
+    full_name: '',
+    phone: '',
+    flat_no: '',
+    family_members: 1,
+  });
 
-    // Sync form with profile data when it loads or changes
-    useEffect(() => {
-      if (profile && !editing) {
-        setForm({
-          full_name: profile.full_name || '',
-          phone: profile.phone || '',
-          flat_no: profile.flat_no || '',
-          family_members: profile.family_members || 1,
-        });
-      }
-    }, [profile, editing]);
+  // Sync form when profile data arrives
+  useEffect(() => {
+    if (profile && !editing) {
+      setForm({
+        full_name: profile.full_name || '',
+        phone: profile.phone || '',
+        flat_no: profile.flat_no || '',
+        family_members: profile.family_members || 1,
+      });
+    }
+  }, [profile, editing]);
 
-    const handleSave = async () => {
-      if (!profile?.id) return;
-      
-      try {
-        const { error } = await supabase
-          .from('profiles')
-          .update({
-            full_name: form.full_name,
-            phone: form.phone,
-            flat_no: form.flat_no,
-            family_members: parseInt(form.family_members.toString()) || 0,
-          })
-          .eq('id', profile.id);
+  const handleSave = async () => {
+    if (!profile?.id) return;
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          full_name: form.full_name,
+          phone: form.phone,
+          flat_no: form.flat_no,
+          family_members: parseInt(form.family_members) || 1,
+        })
+        .eq('id', profile.id);
 
-        if (error) throw error;
-        
-        showToast('success', 'Profile Updated!', 'Your information has been saved.');
-        setEditing(false);
-        refreshProfile();
-      } catch (err) {
-        console.error('Error updating profile:', err);
-        showToast('error', 'Update Failed', 'Could not save details.');
-      }
-    };
+      if (error) throw error;
+      showToast('success', 'Profile Updated!', 'Your details have been saved.');
+      setEditing(false);
+      refreshProfile();
+    } catch (err: any) {
+      showToast('error', 'Update Failed', err.message);
+    }
+  };
 
-    const initials = (profile?.full_name || 'Resident').split(' ').filter(Boolean).map(n => n[0]).join('').toUpperCase().slice(0, 2) || 'U';
+  const initials = profile?.full_name 
+    ? profile.full_name.split(' ').filter(Boolean).map(n => n[0]).join('').toUpperCase().slice(0, 2) 
+    : (profile?.username?.[0]?.toUpperCase() || 'U');
 
-    return (
-      <div className="space-y-6 max-w-2xl mx-auto">
-        <div>
-          <h1 className="page-title">My Profile</h1>
-          <p className="text-[hsl(var(--muted-foreground))] mt-1">Manage your personal information</p>
+  return (
+    <div className="space-y-6 max-w-2xl mx-auto pb-10">
+      <h1 className="page-title text-center sm:text-left">My Profile</h1>
+
+      {/* Header Card */}
+      <div className="card p-8 text-center relative overflow-hidden">
+        <div className="absolute inset-0 h-24 bg-gradient-to-r from-blue-600 to-indigo-600" />
+        <div className="relative z-10 pt-4">
+          <div className="w-24 h-24 rounded-full bg-white dark:bg-gray-800 flex items-center justify-center text-4xl font-bold mx-auto mb-4 border-4 border-white dark:border-gray-900 shadow-xl text-blue-600">
+            {initials}
+          </div>
+          <h2 className="text-2xl font-bold">{profile?.full_name || 'Resident'}</h2>
+          <p className="text-[hsl(var(--muted-foreground))]">@{profile?.username || 'user'}</p>
+        </div>
+      </div>
+
+      {/* Details Card */}
+      <div className="card p-6">
+        <div className="flex justify-between items-center mb-6">
+          <h3 className="section-title">Account Details</h3>
+          {!editing ? (
+            <button onClick={() => setEditing(true)} className="btn-secondary flex items-center gap-2 text-xs">
+              <Edit2 size={12} /> Edit
+            </button>
+          ) : (
+            <div className="flex gap-2">
+              <button onClick={handleSave} className="btn-primary flex items-center gap-2 text-xs">
+                <Save size={12} /> Save
+              </button>
+              <button onClick={() => setEditing(false)} className="btn-secondary text-xs">
+                <X size={12} /> Cancel
+              </button>
+            </div>
+          )}
         </div>
 
-        {/* Profile Header */}
-        <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="card p-8 text-center relative overflow-hidden"
-        >
-          <div className="absolute inset-0 h-24 bg-gradient-to-r from-blue-500 to-indigo-600" />
-          <div className="relative z-10 pt-6">
-            <div className="relative inline-block">
-              <div className="w-24 h-24 rounded-full bg-gradient-to-br from-blue-400 to-indigo-600 flex items-center justify-center text-white text-4xl font-bold mx-auto mb-4 ring-4 ring-white dark:ring-gray-900 shadow-xl">
-                {initials}
-              </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+          {[
+            { label: 'Full Name', icon: <User size={16} />, field: 'full_name' },
+            { label: 'Phone Number', icon: <Phone size={16} />, field: 'phone' },
+            { label: 'Flat Number', icon: <Home size={16} />, field: 'flat_no' },
+          ].map((item) => (
+            <div key={item.field}>
+              <label className="text-xs font-bold uppercase text-[hsl(var(--muted-foreground))] flex items-center gap-2 mb-2">
+                {item.icon} {item.label}
+              </label>
+              {editing ? (
+                <input
+                  type="text"
+                  value={form[item.field]}
+                  onChange={(e) => setForm({ ...form, [item.field]: e.target.value })}
+                  className="input-field"
+                />
+              ) : (
+                <p className="bg-[hsl(var(--muted))]/50 p-3 rounded-xl font-medium">
+                  {form[item.field] || <span className="opacity-50 italic">Not set</span>}
+                </p>
+              )}
             </div>
-            <h2 className="text-2xl font-bold">{profile?.full_name || 'Resident'}</h2>
-            <p className="text-[hsl(var(--muted-foreground))]">@{profile?.username || 'user'}</p>
-          </div>
-        </motion.div>
-
-        {/* Profile Info */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="card p-6"
-        >
-          <div className="flex justify-between items-center mb-6">
-            <h3 className="section-title">Personal Information</h3>
-            {!editing ? (
-              <button onClick={() => setEditing(true)} className="btn-secondary flex items-center gap-2 text-sm">
-                <Edit2 size={14} /> Edit Profile
-              </button>
+          ))}
+          
+          <div>
+            <label className="text-xs font-bold uppercase text-[hsl(var(--muted-foreground))] flex items-center gap-2 mb-2">
+              Family Members
+            </label>
+            {editing ? (
+              <input
+                type="number"
+                value={form.family_members}
+                onChange={(e) => setForm({ ...form, family_members: e.target.value })}
+                className="input-field"
+              />
             ) : (
-              <div className="flex gap-2">
-                <button onClick={handleSave} className="btn-primary flex items-center gap-2 text-sm">
-                  <Save size={14} /> Save
-                </button>
-                <button onClick={() => setEditing(false)} className="btn-secondary text-sm">
-                  <X size={14} />
-                </button>
-              </div>
+              <p className="bg-[hsl(var(--muted))]/50 p-3 rounded-xl font-medium">
+                {form.family_members} Members
+              </p>
             )}
           </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-            {[
-              { label: 'Full Name', icon: <User size={16} />, field: 'full_name', value: form.full_name },
-              { label: 'Phone Number', icon: <Phone size={16} />, field: 'phone', value: form.phone },
-              { label: 'Block / Flat Number', icon: <Home size={16} />, field: 'flat_no', value: form.flat_no },
-              { label: 'Family Members', icon: <Users size={16} />, field: 'family_members', value: form.family_members },
-            ].map(field => (
-              <div key={field.field}>
-                <label className="block text-sm font-medium text-[hsl(var(--muted-foreground))] mb-2 flex items-center gap-1.5">
-                  {field.icon} {field.label}
-                </label>
-                {editing ? (
-                  <input
-                    type="text"
-                    value={field.value}
-                    onChange={e => setForm(p => ({ ...p, [field.field]: e.target.value }))}
-                    className="input-field"
-                  />
-                ) : (
-                  <p className="font-medium py-2.5 px-4 bg-[hsl(var(--muted))]/50 rounded-xl">
-                    {field.value || <span className="text-[hsl(var(--muted-foreground))]">Not set</span>}
-                  </p>
-                )}
-              </div>
-            ))}
-          </div>
-        </motion.div>
-
-        <div className="text-center text-sm text-[hsl(var(--muted-foreground))] pb-4">
-          <p>Joined Colony: <span className="font-semibold text-[hsl(var(--foreground))]">{profile?.created_at ? new Date(profile.created_at).toLocaleDateString() : 'Active Member'}</span></p>
         </div>
       </div>
-    );
-  } catch (e: any) {
-    console.error('ProfilePage crash:', e);
-    return (
-      <div className="p-8 text-center card bg-red-50 dark:bg-red-900/10 border-red-200 m-6">
-        <h2 className="text-xl font-bold text-red-600 mb-2">Technical Error Detected</h2>
-        <p className="text-sm text-red-500 mb-4 font-mono bg-white p-3 rounded-lg border border-red-100">
-          {e.message || 'Unknown Error'}
-        </p>
-        <button onClick={() => window.location.reload()} className="btn-primary bg-red-600 hover:bg-red-700">Reload App</button>
+
+      <div className="text-center text-xs text-[hsl(var(--muted-foreground))]">
+        Member since: {profile?.created_at ? new Date(profile.created_at).toLocaleDateString() : 'N/A'}
       </div>
-    );
-  }
+    </div>
+  );
 }
